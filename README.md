@@ -16,8 +16,8 @@ week_XX/
 ## Run
 
 ```bash
-uv sync              # install deps
-uv run python week_01/main.py   # run current week
+uv sync                        # install deps
+uv run python -m week_01.main  # run current week
 ```
 
 ## Progress
