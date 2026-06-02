@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+import os
+from collections.abc import Iterator
+
+from dotenv import load_dotenv
+from openai import OpenAI
+
+from week_01.config import PROVIDERS
+
+load_dotenv()
+
+
+def available_providers() -> list[str]:
+    return [name for name, (_, _, env_var) in PROVIDERS.items() if os.environ.get(env_var)]
+
+
+def get_client(provider_name: str) -> tuple[OpenAI, str]:
+    base_url, model_id, env_var = PROVIDERS[provider_name]
+    api_key = os.environ.get(env_var)
+    if not api_key:
+        raise OSError(f"Missing env var: {env_var}")
+    return OpenAI(base_url=base_url, api_key=api_key), model_id
+
+
+def stream_response(
+    client: OpenAI,
+    model_id: str,
+    messages: list[dict[str, str]],
+) -> Iterator[str | dict]:
+    stream = client.chat.completions.create(
+        model=model_id,
+        messages=messages,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+    for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+        if chunk.usage:
+            yield {"usage": chunk.usage}

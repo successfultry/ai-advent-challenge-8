@@ -1,0 +1,40 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Personal study notes (keep out of public repo) ---
+.cursor/docs/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# --- uv ---
+# lockfile is kept; nothing to ignore by default
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# --- Demo / media artifacts ---
+*.mp4
+*.mov
+*.mkv
+*.gif
+recordings/
+demos/
