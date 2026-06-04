@@ -174,17 +174,18 @@ with its own fresh `messages`. The main chat history is not touched.
 
 ```
 /solve In a room there are 3 switches and 1 bulb in another room. You can enter the other room only once. How do you find which switch controls the bulb?
+/solve В одной комнате есть 3 выключателя, а в другой комнате - 1 лампочка. Вы можете войти в другую комнату только один раз. Как определить, какой выключатель управляет лампочкой?
 /judge
 ```
-В одной комнате есть 3 выключателя, а в другой комнате - 1 лампочка. Вы можете войти в другую комнату только один раз. Как определить, какой выключатель управляет лампочкой?
+
 
 Or use an analytical task where different perspectives actually diverge:
 
 ```
 /solve What is the most important skill for a software engineer in 2026?
+/solve Какой навык является самым важным для инженера-программиста в 2026 году?
 /judge
 ```
-
 
 ## Progress
 
