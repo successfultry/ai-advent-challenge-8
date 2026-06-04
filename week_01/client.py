@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from week_01.config import PROVIDERS
+from week_01.techniques import META_STEP1_TEMPLATE, is_russian
 
 load_dotenv()
 
@@ -41,6 +42,19 @@ def get_response(
     )
     choice = resp.choices[0]
     return choice.message.content or "", choice.finish_reason or "unknown", resp.usage
+
+
+def solve_meta(
+    client: OpenAI,
+    model_id: str,
+    question: str,
+) -> tuple[str, str, str, object]:
+    lang = "ru" if is_russian(question) else "en"
+    step1_msgs = [{"role": "user", "content": META_STEP1_TEMPLATE[lang].format(question=question)}]
+    generated_prompt, _, _ = get_response(client, model_id, step1_msgs)
+    step2_msgs = [{"role": "user", "content": generated_prompt}]
+    content, finish_reason, usage = get_response(client, model_id, step2_msgs)
+    return generated_prompt, content, finish_reason, usage
 
 
 def stream_response(

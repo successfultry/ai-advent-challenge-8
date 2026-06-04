@@ -138,9 +138,58 @@ JSON cut mid-object → invalid. `finish: length`. (Shows: `stop`/json are point
 ```
 The model decides whether to obey — soft control, no API params.
 
+## Day 3 — Different reasoning strategies
+
+Same task solved four ways, side by side, to show how the prompting technique
+changes the quality and style of the answer.
+
+### Techniques
+
+| # | Name | What the prompt does |
+|---|------|----------------------|
+| 1 | **Direct** | question as-is, no instructions |
+| 2 | **Chain of Thought** | «solve step by step, show reasoning» |
+| 3 | **Meta-prompt** | 2 API calls: first ask model to *write the best prompt* for the task, then send that prompt. The generated prompt is printed so you can see what the model wrote. |
+| 4 | **Experts panel** | system prompt assigns 3 roles (Analyst, Engineer, Critic); each gives their perspective |
+
+Techniques run in order 1→2→3→4; each prints its answer, `finish_reason` and token usage.
+At the end `/solve` prints the total token cost of the whole experiment.
+
+### Commands
+
+```
+/solve <task>    run all 4 techniques, print each result with usage
+/judge           send all 4 results to the model; it rates and picks the best
+```
+
+Technique instructions auto-switch language: Cyrillic question → Russian prompts,
+otherwise English (keeps the answer in the same language as the question).
+
+No `/clear` needed before `/solve` — each technique sends an **independent** request
+with its own fresh `messages`. The main chat history is not touched.
+
+`/judge` is optional but gives a clean on-screen verdict for the video.
+
+### Demo
+
+```
+/solve In a room there are 3 switches and 1 bulb in another room. You can enter the other room only once. How do you find which switch controls the bulb?
+/judge
+```
+В одной комнате есть 3 выключателя, а в другой комнате - 1 лампочка. Вы можете войти в другую комнату только один раз. Как определить, какой выключатель управляет лампочкой?
+
+Or use an analytical task where different perspectives actually diverge:
+
+```
+/solve What is the most important skill for a software engineer in 2026?
+/judge
+```
+
+
 ## Progress
 
 | Day | Task | Status | Video |
 |-----|------|--------|-------|
 | 1 | First LLM request via API (streaming CLI) | done | _link_ |
 | 2 | Response format & control (`/params`, `/hint`) | done | _link_ |
+| 3 | Reasoning strategies (`/solve`, `/judge`) | done | _link_ |

@@ -8,7 +8,14 @@ from rich.prompt import Prompt
 from rich.rule import Rule
 from rich.table import Table
 
-from week_01.client import available_providers, get_client, get_response, stream_response
+from week_01.client import (
+    available_providers,
+    get_client,
+    get_response,
+    solve_meta,
+    stream_response,
+)
+from week_01.techniques import JUDGE_TEMPLATE, cot, direct, experts, is_russian
 
 console = Console()
 
@@ -16,6 +23,8 @@ COMMANDS = {
     "/params": "configure API params (max_tokens, stop, json) — toggle on/off",
     "/params off": "disable API params, back to raw mode",
     "/hint": "show prompt-constrained template to copy-paste",
+    "/solve <q>": "run one task through 4 prompting techniques and compare",
+    "/judge": "ask model to compare last /solve results and pick the best",
     "/switch": "switch model",
     "/clear": "clear chat history",
     "/help": "show this help",
@@ -104,10 +113,90 @@ def print_hint() -> None:
     console.print()
 
 
+def _print_solution(label: str, content: str, finish_reason: str, usage: object) -> int:
+    console.print(f"\n[bold yellow]{label}[/]")
+    console.print(Rule(style="dim"))
+    console.print(content.strip())
+    if usage:
+        console.print(
+            f"\n[dim]↑ {usage.prompt_tokens} · ↓ {usage.completion_tokens} · "
+            f"finish: {finish_reason}[/]\n"
+        )
+        return usage.total_tokens
+    console.print(f"\n[dim]finish: {finish_reason}[/]\n")
+    return 0
+
+
+def run_solve(client: object, model_id: str, question: str) -> list[tuple[str, str]]:
+    console.print(Panel(f"[bold]Solve · 4 techniques[/]\n[dim]{question}[/]", expand=False))
+    results: list[tuple[str, str]] = []
+    total_tokens = 0
+
+    try:
+        content, finish_reason, usage = get_response(client, model_id, direct(question))
+        total_tokens += _print_solution("1 · Direct", content, finish_reason, usage)
+        results.append(("1 · Direct", content))
+    except Exception as e:
+        console.print(f"[red]Error (direct):[/] {e}\n")
+
+    try:
+        content, finish_reason, usage = get_response(client, model_id, cot(question))
+        total_tokens += _print_solution("2 · Chain of Thought", content, finish_reason, usage)
+        results.append(("2 · Chain of Thought", content))
+    except Exception as e:
+        console.print(f"[red]Error (cot):[/] {e}\n")
+
+    try:
+        generated, content, finish_reason, usage = solve_meta(client, model_id, question)
+        console.print("\n[bold yellow]3 · Meta-prompt[/] [dim](model wrote this prompt)[/]")
+        console.print(Rule(style="dim"))
+        console.print(f"[italic dim]{generated.strip()}[/]")
+        console.print(Rule(style="dim"))
+        total_tokens += _print_solution("3 · Meta-prompt → solution", content, finish_reason, usage)
+        results.append(("3 · Meta-prompt", content))
+    except Exception as e:
+        console.print(f"[red]Error (meta):[/] {e}\n")
+
+    try:
+        content, finish_reason, usage = get_response(client, model_id, experts(question))
+        total_tokens += _print_solution("4 · Experts panel", content, finish_reason, usage)
+        results.append(("4 · Experts panel", content))
+    except Exception as e:
+        console.print(f"[red]Error (experts):[/] {e}\n")
+
+    console.print(f"[dim]Total experiment cost: {total_tokens} tokens[/]\n")
+    return results
+
+
+def run_judge(
+    client: object, model_id: str, question: str, solutions: list[tuple[str, str]]
+) -> None:
+    if not solutions:
+        console.print("[red]No solutions to judge. Run /solve first.[/]\n")
+        return
+
+    solutions_text = "\n\n".join(f"[{label}]:\n{content}" for label, content in solutions)
+    lang = "ru" if is_russian(question) else "en"
+    judge_prompt = JUDGE_TEMPLATE[lang].format(question=question, solutions=solutions_text)
+
+    console.print(Panel("[bold]Judge[/] — comparing all solutions", expand=False))
+    try:
+        content, finish_reason, usage = get_response(
+            client, model_id, [{"role": "user", "content": judge_prompt}]
+        )
+        console.print(content.strip())
+        tokens = f"↑ {usage.prompt_tokens} · ↓ {usage.completion_tokens}" if usage else ""
+        console.print(f"\n[dim]{tokens} · finish: {finish_reason}[/]\n")
+    except Exception as e:
+        console.print(f"[red]Error (judge):[/] {e}\n")
+
+
 def chat_loop(provider_name: str) -> bool:
     client, model_id = get_client(provider_name)
     messages: list[dict[str, str]] = []
     api_params: dict = {}
+    last_solutions: list[tuple[str, str]] = []
+    last_question: str = ""
 
     console.print(Rule(f"[green]{provider_name}[/] · [dim]{model_id}[/]"))
     console.print("[dim]Type a message or [bold]/help[/] for commands.[/]\n")
@@ -145,6 +234,19 @@ def chat_loop(provider_name: str) -> bool:
 
         if user_input == "/hint":
             print_hint()
+            continue
+
+        if user_input == "/solve" or user_input.startswith("/solve "):
+            question = user_input[len("/solve ") :].strip() if " " in user_input else ""
+            if question:
+                last_question = question
+                last_solutions = run_solve(client, model_id, question)
+            else:
+                console.print("[red]Usage:[/] /solve <your task>\n")
+            continue
+
+        if user_input == "/judge":
+            run_judge(client, model_id, last_question, last_solutions)
             continue
 
         if user_input == "/clear":
