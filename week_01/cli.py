@@ -138,7 +138,7 @@ def chat_loop(provider_name: str) -> bool:
         if user_input == "/params":
             if messages:
                 console.print(
-                    "[dim]💡 Tip: /clear history before comparing for cleaner results.[/]"
+                    "[dim]💡 Tip: /clear history before comparing for cleaner ↑ tokens.[/]"
                 )
             api_params = ask_params()
             continue

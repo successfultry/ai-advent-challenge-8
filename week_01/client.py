@@ -23,6 +23,26 @@ def get_client(provider_name: str) -> tuple[OpenAI, str]:
     return OpenAI(base_url=base_url, api_key=api_key), model_id
 
 
+def get_response(
+    client: OpenAI,
+    model_id: str,
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
+    stop: list[str] | None = None,
+    response_format: dict | None = None,
+) -> tuple[str, str, object]:
+    resp = client.chat.completions.create(
+        model=model_id,
+        messages=messages,
+        max_tokens=max_tokens,
+        stop=stop,
+        response_format=response_format,
+    )
+    choice = resp.choices[0]
+    return choice.message.content or "", choice.finish_reason or "unknown", resp.usage
+
+
 def stream_response(
     client: OpenAI,
     model_id: str,
