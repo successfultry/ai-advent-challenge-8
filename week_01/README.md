@@ -84,12 +84,16 @@ Key insight: API parameters (`max_tokens`, `stop`) are **hard guarantees** — t
 enforces them regardless of what the model wants. Prompt instructions are **soft** — the
 model may ignore them. `finish_reason=length` = cut mid-sentence; `stop` = ended cleanly.
 
+**json mode note:** `response_format=json_object` requires the word «json» somewhere in the
+messages (OpenAI and DeepSeek enforce this). When `json=on` is active, the CLI automatically
+injects a system instruction so any prompt works without you writing «json» manually.
+
 DeepSeek R1 (`deepseek-reasoner`) ignores `stop` and `temperature` — use `deepseek-chat`
 or `gpt-4o-mini` for this comparison.
 
 ### Demo steps (run in order)
 
-Start with `uv run python -m week_01.main`, pick `DeepSeek Chat` or `GPT-4o mini`
+Start with `uv run python -m week_01.main`, pick `DeepSeek V3` or `GPT-4o mini`
 (not R1), then:
 
 **1. Raw — no limits**
@@ -187,10 +191,65 @@ Or use an analytical task where different perspectives actually diverge:
 /judge
 ```
 
+---
+
+## Day 4 — Temperature
+
+Send the same prompt at `temperature = 0 / 0.7 / 1.2 / 2.0`, 3 runs each, and compare
+accuracy, creativity, and diversity across temperatures.
+
+```
+/temp <question>
+```
+
+Each temperature runs **3 times** (`DEFAULT_REPEATS = 3`) with a `max_tokens=150` cap —
+this prevents `temp=2.0` from burning thousands of tokens on incoherent output while still
+showing the full degradation effect. The cap is intentional: equal length across temps makes
+the diversity axis more comparable.
+
+- `temp=0` → all runs are nearly **identical** (deterministic, reproducible)
+- `temp=1.2+` → each run is **noticeably different** (diversity grows)
+- `temp=2.0` → degradation: incoherent words, mixed languages, gibberish (capped at 150 tokens)
+
+> **Model note:** use `DeepSeek V3` (`deepseek-chat`) or `GPT-4o` — both respect
+> `temperature`. `DeepSeek R1` (reasoning model) ignores temperature; use `reasoning_effort`
+> for that one.
+
+### Debug mode
+
+```
+/debug    toggle raw request JSON output (off by default)
+```
+
+When enabled, every API call prints the exact JSON payload that flies to the REST endpoint —
+useful for understanding what parameters are actually sent.
+
+### Demo
+
+```
+/temp Напиши короткое стихотворение о программировании
+/temp Write a one-paragraph story about a robot discovering music
+/debug
+/temp What color is the sky?
+```
+
+Recommended flow for the video: show `temp=0` (3 identical runs), then `temp=1.2`
+(3 different runs), finish with `temp=2.0` (chaos). Mention use-cases at the end:
+- `0` → extraction, classification, reproducible outputs
+- `0.7` → default balance (chat, explanations)
+- `1.2` → brainstorming, naming, creative writing
+- `2.0` → demonstrates breakdown; not useful in practice
+
+---
+
 ## Progress
 
-| Day | Task | Status | Video |
-|-----|------|--------|-------|
-| 1 | First LLM request via API (streaming CLI) | done | _link_ |
-| 2 | Response format & control (`/params`, `/hint`) | done | _link_ |
-| 3 | Reasoning strategies (`/solve`, `/judge`) | done | _link_ |
+| Day | Task | Commands | Code | Status | Video |
+|-----|------|----------|------|--------|-------|
+| 1 | First LLM request via API (streaming CLI) | chat, `/switch`, `/clear` | `client.stream_response`, `cli.chat_loop` | done | _link_ |
+| 2 | Response format & control | `/params`, `/hint` | `client.get_response`, `cli.ask_params` | done | _link_ |
+| 3 | Reasoning strategies | `/solve`, `/judge` | `techniques.py`, `cli.run_solve` | done | _link_ |
+| 4 | Temperature sweep | `/temp`, `/debug` | `cli.run_temp`, `cli.print_request` | done | _link_ |
+
+All days share one codebase; the table maps each day to its commands and the modules that
+implement them. Per-day code snapshots are git tags (`week1-day1` … `week1-day4`).

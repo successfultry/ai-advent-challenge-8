@@ -1,30 +1,47 @@
 from __future__ import annotations
 
+import json
 import sys
 
+from openai import OpenAI
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.rule import Rule
+from rich.syntax import Syntax
 from rich.table import Table
 
 from week_01.client import (
     available_providers,
+    build_payload,
     get_client,
     get_response,
-    solve_meta,
     stream_response,
 )
-from week_01.techniques import JUDGE_TEMPLATE, cot, direct, experts, is_russian
+from week_01.techniques import (
+    JUDGE_TEMPLATE,
+    META_STEP1_TEMPLATE,
+    cot,
+    direct,
+    experts,
+    is_russian,
+)
 
 console = Console()
+
+DEFAULT_TEMPS = (0.0, 0.7, 1.2, 2.0)
+DEFAULT_REPEATS = 3
+DEFAULT_TEMP_MAX_TOKENS = 150
+_JSON_SYSTEM = "Reply with a valid JSON object only, no prose."
 
 COMMANDS = {
     "/params": "configure API params (max_tokens, stop, json) — toggle on/off",
     "/params off": "disable API params, back to raw mode",
     "/hint": "show prompt-constrained template to copy-paste",
+    "/temp <q>": "run same question at temperature 0 / 0.7 / 1.2 / 2.0 (×3 each)",
     "/solve <q>": "run one task through 4 prompting techniques and compare",
     "/judge": "ask model to compare last /solve results and pick the best",
+    "/debug": "toggle raw request JSON output (off by default)",
     "/switch": "switch model",
     "/clear": "clear chat history",
     "/help": "show this help",
@@ -113,6 +130,13 @@ def print_hint() -> None:
     console.print()
 
 
+def print_request(model_id: str, messages: list[dict], **params) -> None:
+    payload = build_payload(model_id, messages, **params)
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    syntax = Syntax(body, "json", theme="ansi_dark")
+    console.print(Panel(syntax, title="REQUEST → API", expand=False))
+
+
 def _print_solution(label: str, content: str, finish_reason: str, usage: object) -> int:
     console.print(f"\n[bold yellow]{label}[/]")
     console.print(Rule(style="dim"))
@@ -127,27 +151,73 @@ def _print_solution(label: str, content: str, finish_reason: str, usage: object)
     return 0
 
 
-def run_solve(client: object, model_id: str, question: str) -> list[tuple[str, str]]:
+def run_temp(
+    client: OpenAI,
+    model_id: str,
+    question: str,
+    *,
+    temps: tuple[float, ...] = DEFAULT_TEMPS,
+    repeats: int = DEFAULT_REPEATS,
+    max_tokens: int = DEFAULT_TEMP_MAX_TOKENS,
+    debug: bool = False,
+) -> None:
+    msgs = [{"role": "user", "content": question}]
+    console.print(Panel(f"[bold]Temperature sweep[/]\n[dim]{question}[/]", expand=False))
+    for temp in temps:
+        for run in range(1, repeats + 1):
+            label = f"temp={temp}  run {run}/{repeats}"
+            if debug:
+                print_request(model_id, msgs, temperature=temp, max_tokens=max_tokens)
+            try:
+                content, finish, usage = get_response(
+                    client, model_id, msgs, temperature=temp, max_tokens=max_tokens
+                )
+                _print_solution(label, content, finish, usage)
+            except Exception as e:
+                console.print(f"[red]Error (temp={temp} run {run}):[/] {e}\n")
+
+
+def run_solve(
+    client: OpenAI, model_id: str, question: str, *, debug: bool = False
+) -> list[tuple[str, str]]:
     console.print(Panel(f"[bold]Solve · 4 techniques[/]\n[dim]{question}[/]", expand=False))
     results: list[tuple[str, str]] = []
     total_tokens = 0
 
     try:
-        content, finish_reason, usage = get_response(client, model_id, direct(question))
+        msgs = direct(question)
+        if debug:
+            print_request(model_id, msgs)
+        content, finish_reason, usage = get_response(client, model_id, msgs)
         total_tokens += _print_solution("1 · Direct", content, finish_reason, usage)
         results.append(("1 · Direct", content))
     except Exception as e:
         console.print(f"[red]Error (direct):[/] {e}\n")
 
     try:
-        content, finish_reason, usage = get_response(client, model_id, cot(question))
+        msgs = cot(question)
+        if debug:
+            print_request(model_id, msgs)
+        content, finish_reason, usage = get_response(client, model_id, msgs)
         total_tokens += _print_solution("2 · Chain of Thought", content, finish_reason, usage)
         results.append(("2 · Chain of Thought", content))
     except Exception as e:
         console.print(f"[red]Error (cot):[/] {e}\n")
 
     try:
-        generated, content, finish_reason, usage = solve_meta(client, model_id, question)
+        lang = "ru" if is_russian(question) else "en"
+        step1_msgs = [
+            {"role": "user", "content": META_STEP1_TEMPLATE[lang].format(question=question)}
+        ]
+        if debug:
+            print_request(model_id, step1_msgs)
+        generated, _, _ = get_response(client, model_id, step1_msgs)
+
+        step2_msgs = [{"role": "user", "content": generated}]
+        if debug:
+            print_request(model_id, step2_msgs)
+        content, finish_reason, usage = get_response(client, model_id, step2_msgs)
+
         console.print("\n[bold yellow]3 · Meta-prompt[/] [dim](model wrote this prompt)[/]")
         console.print(Rule(style="dim"))
         console.print(f"[italic dim]{generated.strip()}[/]")
@@ -158,7 +228,10 @@ def run_solve(client: object, model_id: str, question: str) -> list[tuple[str, s
         console.print(f"[red]Error (meta):[/] {e}\n")
 
     try:
-        content, finish_reason, usage = get_response(client, model_id, experts(question))
+        msgs = experts(question)
+        if debug:
+            print_request(model_id, msgs)
+        content, finish_reason, usage = get_response(client, model_id, msgs)
         total_tokens += _print_solution("4 · Experts panel", content, finish_reason, usage)
         results.append(("4 · Experts panel", content))
     except Exception as e:
@@ -169,7 +242,12 @@ def run_solve(client: object, model_id: str, question: str) -> list[tuple[str, s
 
 
 def run_judge(
-    client: object, model_id: str, question: str, solutions: list[tuple[str, str]]
+    client: OpenAI,
+    model_id: str,
+    question: str,
+    solutions: list[tuple[str, str]],
+    *,
+    debug: bool = False,
 ) -> None:
     if not solutions:
         console.print("[red]No solutions to judge. Run /solve first.[/]\n")
@@ -178,12 +256,13 @@ def run_judge(
     solutions_text = "\n\n".join(f"[{label}]:\n{content}" for label, content in solutions)
     lang = "ru" if is_russian(question) else "en"
     judge_prompt = JUDGE_TEMPLATE[lang].format(question=question, solutions=solutions_text)
+    msgs = [{"role": "user", "content": judge_prompt}]
 
     console.print(Panel("[bold]Judge[/] — comparing all solutions", expand=False))
     try:
-        content, finish_reason, usage = get_response(
-            client, model_id, [{"role": "user", "content": judge_prompt}]
-        )
+        if debug:
+            print_request(model_id, msgs)
+        content, finish_reason, usage = get_response(client, model_id, msgs)
         console.print(content.strip())
         tokens = f"↑ {usage.prompt_tokens} · ↓ {usage.completion_tokens}" if usage else ""
         console.print(f"\n[dim]{tokens} · finish: {finish_reason}[/]\n")
@@ -197,6 +276,7 @@ def chat_loop(provider_name: str) -> bool:
     api_params: dict = {}
     last_solutions: list[tuple[str, str]] = []
     last_question: str = ""
+    debug_on: bool = False
 
     console.print(Rule(f"[green]{provider_name}[/] · [dim]{model_id}[/]"))
     console.print("[dim]Type a message or [bold]/help[/] for commands.[/]\n")
@@ -236,17 +316,31 @@ def chat_loop(provider_name: str) -> bool:
             print_hint()
             continue
 
+        if user_input == "/debug":
+            debug_on = not debug_on
+            state = "[green]ON[/]" if debug_on else "[dim]OFF[/]"
+            console.print(f"Debug mode: {state}\n")
+            continue
+
+        if user_input == "/temp" or user_input.startswith("/temp "):
+            question = user_input[len("/temp ") :].strip() if " " in user_input else ""
+            if question:
+                run_temp(client, model_id, question, debug=debug_on)
+            else:
+                console.print("[red]Usage:[/] /temp <your question>\n")
+            continue
+
         if user_input == "/solve" or user_input.startswith("/solve "):
             question = user_input[len("/solve ") :].strip() if " " in user_input else ""
             if question:
                 last_question = question
-                last_solutions = run_solve(client, model_id, question)
+                last_solutions = run_solve(client, model_id, question, debug=debug_on)
             else:
                 console.print("[red]Usage:[/] /solve <your task>\n")
             continue
 
         if user_input == "/judge":
-            run_judge(client, model_id, last_question, last_solutions)
+            run_judge(client, model_id, last_question, last_solutions, debug=debug_on)
             continue
 
         if user_input == "/clear":
@@ -265,13 +359,23 @@ def chat_loop(provider_name: str) -> bool:
         messages.append({"role": "user", "content": user_input})
         console.print(f"\n[bold green]{provider_name}[/]:")
 
+        # When json mode is on but the prompt has no "json" keyword, OpenAI/DeepSeek
+        # reject the request (400). Inject a system instruction automatically.
+        json_mode = "response_format" in api_params
+        if json_mode and "json" not in user_input.lower():
+            effective_messages = [{"role": "system", "content": _JSON_SYSTEM}] + messages
+        else:
+            effective_messages = messages
+
         if api_params:
             # non-streaming: get_response returns content + finish_reason + usage
             try:
+                if debug_on:
+                    print_request(model_id, effective_messages, **api_params)
                 content, finish_reason, usage = get_response(
                     client,
                     model_id,
-                    messages,
+                    effective_messages,
                     **api_params,
                 )
                 console.print(content)
@@ -287,10 +391,12 @@ def chat_loop(provider_name: str) -> bool:
             messages.append({"role": "assistant", "content": content})
         else:
             # streaming: token-by-token
+            if debug_on:
+                print_request(model_id, effective_messages)
             full_response: list[str] = []
             usage = None
             try:
-                for chunk in stream_response(client, model_id, messages):
+                for chunk in stream_response(client, model_id, effective_messages):
                     if isinstance(chunk, dict):
                         usage = chunk.get("usage")
                     else:

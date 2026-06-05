@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from week_01.config import PROVIDERS
-from week_01.techniques import META_STEP1_TEMPLATE, is_russian
 
 load_dotenv()
 
@@ -24,6 +23,27 @@ def get_client(provider_name: str) -> tuple[OpenAI, str]:
     return OpenAI(base_url=base_url, api_key=api_key), model_id
 
 
+def build_payload(
+    model_id: str,
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
+    stop: list[str] | None = None,
+    response_format: dict | None = None,
+    temperature: float | None = None,
+) -> dict:
+    params: dict = {"model": model_id, "messages": messages}
+    if max_tokens is not None:
+        params["max_tokens"] = max_tokens
+    if stop is not None:
+        params["stop"] = stop
+    if response_format is not None:
+        params["response_format"] = response_format
+    if temperature is not None:
+        params["temperature"] = temperature
+    return params
+
+
 def get_response(
     client: OpenAI,
     model_id: str,
@@ -32,6 +52,7 @@ def get_response(
     max_tokens: int | None = None,
     stop: list[str] | None = None,
     response_format: dict | None = None,
+    temperature: float | None = None,
 ) -> tuple[str, str, object]:
     resp = client.chat.completions.create(
         model=model_id,
@@ -39,22 +60,10 @@ def get_response(
         max_tokens=max_tokens,
         stop=stop,
         response_format=response_format,
+        temperature=temperature,
     )
     choice = resp.choices[0]
     return choice.message.content or "", choice.finish_reason or "unknown", resp.usage
-
-
-def solve_meta(
-    client: OpenAI,
-    model_id: str,
-    question: str,
-) -> tuple[str, str, str, object]:
-    lang = "ru" if is_russian(question) else "en"
-    step1_msgs = [{"role": "user", "content": META_STEP1_TEMPLATE[lang].format(question=question)}]
-    generated_prompt, _, _ = get_response(client, model_id, step1_msgs)
-    step2_msgs = [{"role": "user", "content": generated_prompt}]
-    content, finish_reason, usage = get_response(client, model_id, step2_msgs)
-    return generated_prompt, content, finish_reason, usage
 
 
 def stream_response(
