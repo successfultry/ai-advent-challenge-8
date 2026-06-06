@@ -245,7 +245,7 @@ Recommended flow for the video: show `temp=0` (3 identical runs), then `temp=1.2
 ## Day 5 — Model tiers: weak / medium / strong
 
 Run the same question on three models that differ in size and compare response quality,
-speed, and cost in one Rich table.
+speed, and cost.
 
 ### What "weak / medium / strong" means
 
@@ -266,8 +266,9 @@ a known param count.
 /bench <question>
 ```
 
-All three tiers run sequentially with the same fixed params (`temperature=0.7`,
-`max_tokens=500`). After all calls a Rich table is printed:
+Each tier runs sequentially with the same fixed params (`temperature=0.7`,
+`max_tokens=500`). Each model's full answer is printed as soon as it arrives
+(weak → medium → strong), then a summary Rich table with all metrics is shown last:
 
 ```
 tier              | provider         | time  | ↑ in | ↓ out | total tok | cost USD | finish | preview
@@ -276,7 +277,7 @@ medium (~70B)     | Llama 70B (Groq) | 2.3s  |  42  |  156  |    198    | $0.000
 strong (frontier) | GPT-4o           | 4.7s  |  42  |  201  |    243    | $0.00213 | stop   | …
 ```
 
-Full answers are printed below the table. Cost is calculated from `PRICING` in `config.py`
+Cost is calculated from `PRICING` in `config.py`
 (USD per 1M tokens). Sources: [OpenAI pricing](https://platform.openai.com/docs/pricing),
 [Groq pricing](https://groq.com/pricing), [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing).
 
@@ -287,9 +288,13 @@ Full answers are printed below the table. Cost is calculated from `PRICING` in `
 ```
 /bench Есть Python-библиотека fastmatrix для умножения матриц. Как установить и пример?
 /bench У Ани 2 яблока, у Васи 3 груши. Сколько всего фруктов? Потом Аня съела одно яблоко.
+/bench У меня грязная машина. Мойка в 100 метрах. Ехать на машине или дойти пешком?
 ```
 
 Good demo questions trigger hallucinations or logic errors on weak models but not on strong.
+In practice: `fastmatrix` makes the weak (and sometimes medium) model invent a non-existent
+library, while the strong one admits it doesn't know it. The car-wash question trips the weak
+model into a confused answer, while medium/strong correctly reason "100 m → just walk".
 
 ---
 
