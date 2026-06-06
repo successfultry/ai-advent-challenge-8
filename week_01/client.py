@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Iterator
 
 from dotenv import load_dotenv
@@ -64,6 +65,21 @@ def get_response(
     )
     choice = resp.choices[0]
     return choice.message.content or "", choice.finish_reason or "unknown", resp.usage
+
+
+def timed_response(
+    client: OpenAI,
+    model_id: str,
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+) -> tuple[str, str, object, float]:
+    t0 = time.perf_counter()
+    content, reason, usage = get_response(
+        client, model_id, messages, max_tokens=max_tokens, temperature=temperature
+    )
+    return content, reason, usage, time.perf_counter() - t0
 
 
 def stream_response(

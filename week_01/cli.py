@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import dataclass
 
 from openai import OpenAI
 from rich.console import Console
@@ -17,7 +18,9 @@ from week_01.client import (
     get_client,
     get_response,
     stream_response,
+    timed_response,
 )
+from week_01.config import BENCH_TIERS, PRICING
 from week_01.techniques import (
     JUDGE_TEMPLATE,
     META_STEP1_TEMPLATE,
@@ -34,7 +37,24 @@ DEFAULT_REPEATS = 3
 DEFAULT_TEMP_MAX_TOKENS = 150
 _JSON_SYSTEM = "Reply with a valid JSON object only, no prose."
 
+BENCH_TEMPERATURE = 0.7
+BENCH_MAX_TOKENS = 500
+
+
+@dataclass
+class BenchRow:
+    tier: str
+    provider: str
+    time: str
+    prompt_tok: str
+    completion_tok: str
+    total_tok: str
+    cost: str
+    finish: str
+    content: str
+
 COMMANDS = {
+    "/bench <q>": "run one question on weak / medium / strong models and compare",
     "/params": "configure API params (max_tokens, stop, json) — toggle on/off",
     "/params off": "disable API params, back to raw mode",
     "/hint": "show prompt-constrained template to copy-paste",
@@ -270,6 +290,77 @@ def run_judge(
         console.print(f"[red]Error (judge):[/] {e}\n")
 
 
+def run_bench(question: str, *, debug: bool = False) -> None:
+    console.print(
+        Panel(f"[bold]Bench · weak / medium / strong[/]\n[dim]{question}[/]", expand=False)
+    )
+    rows: list[BenchRow] = []
+    total_cost = 0.0
+
+    for tier, provider_name in BENCH_TIERS:
+        try:
+            c, model_id = get_client(provider_name)
+            msgs = [{"role": "user", "content": question}]
+            if debug:
+                print_request(
+                    model_id, msgs, temperature=BENCH_TEMPERATURE, max_tokens=BENCH_MAX_TOKENS
+                )
+            content, finish, usage, elapsed = timed_response(
+                c, model_id, msgs, temperature=BENCH_TEMPERATURE, max_tokens=BENCH_MAX_TOKENS
+            )
+            console.print(f"\n[bold yellow]{tier} · {provider_name}[/]  [dim]{elapsed:.2f}s[/]")
+            console.print(Rule(style="dim"))
+            console.print(content.strip())
+            console.print()
+            if usage:
+                in_p, out_p = PRICING.get(model_id, (0.0, 0.0))
+                cost = (usage.prompt_tokens * in_p + usage.completion_tokens * out_p) / 1_000_000
+                total_cost += cost
+                rows.append(
+                    BenchRow(
+                        tier=tier,
+                        provider=provider_name,
+                        time=f"{elapsed:.2f}s",
+                        prompt_tok=str(usage.prompt_tokens),
+                        completion_tok=str(usage.completion_tokens),
+                        total_tok=str(usage.total_tokens),
+                        cost=f"${cost:.5f}",
+                        finish=finish,
+                        content=content,
+                    )
+                )
+            else:
+                rows.append(
+                    BenchRow(
+                        tier, provider_name, f"{elapsed:.2f}s",
+                        "?", "?", "?", "n/a", finish, content,
+                    )
+                )
+        except Exception as e:
+            console.print(f"\n[bold yellow]{tier} · {provider_name}[/]")
+            console.print(f"[red]Error:[/] {e}\n")
+            rows.append(BenchRow(tier, provider_name, "—", "—", "—", "—", "—", "error", str(e)))
+
+    t = Table(title="Benchmark", show_lines=True)
+    t.add_column("tier", style="bold")
+    t.add_column("provider")
+    t.add_column("time", justify="right")
+    t.add_column("↑ in", justify="right")
+    t.add_column("↓ out", justify="right")
+    t.add_column("total tok", justify="right")
+    t.add_column("cost USD", justify="right")
+    t.add_column("finish")
+    t.add_column("preview (80 chars)", max_width=82)
+    for r in rows:
+        preview = r.content[:80].replace("\n", " ") + ("…" if len(r.content) > 80 else "")
+        t.add_row(
+            r.tier, r.provider, r.time, r.prompt_tok, r.completion_tok, r.total_tok, r.cost,
+            r.finish, preview,
+        )
+    console.print(t)
+    console.print(f"[dim]Total experiment cost: ${total_cost:.5f}[/]\n")
+
+
 def chat_loop(provider_name: str) -> bool:
     client, model_id = get_client(provider_name)
     messages: list[dict[str, str]] = []
@@ -341,6 +432,14 @@ def chat_loop(provider_name: str) -> bool:
 
         if user_input == "/judge":
             run_judge(client, model_id, last_question, last_solutions, debug=debug_on)
+            continue
+
+        if user_input == "/bench" or user_input.startswith("/bench "):
+            question = user_input[len("/bench ") :].strip() if " " in user_input else ""
+            if question:
+                run_bench(question, debug=debug_on)
+            else:
+                console.print("[red]Usage:[/] /bench <your question>\n")
             continue
 
         if user_input == "/clear":

@@ -242,6 +242,57 @@ Recommended flow for the video: show `temp=0` (3 identical runs), then `temp=1.2
 
 ---
 
+## Day 5 — Model tiers: weak / medium / strong
+
+Run the same question on three models that differ in size and compare response quality,
+speed, and cost in one Rich table.
+
+### What "weak / medium / strong" means
+
+| Tier | Approximate size | Example here |
+|------|-----------------|--------------|
+| **weak** | up to ~8B parameters | `llama-3.1-8b-instant` via Groq |
+| **medium** | ~70B parameters | `llama-3.3-70b-versatile` via Groq |
+| **strong** | frontier (400B+, closed-source) | `gpt-4o` via OpenAI |
+
+Parameter count is stated in the model name for open models (Llama `-8b`, `-70b`).
+OpenAI does not publish sizes — `gpt-4o` is classified as strong by benchmarks, not by
+a known param count.
+
+
+### Command
+
+```
+/bench <question>
+```
+
+All three tiers run sequentially with the same fixed params (`temperature=0.7`,
+`max_tokens=500`). After all calls a Rich table is printed:
+
+```
+tier              | provider         | time  | ↑ in | ↓ out | total tok | cost USD | finish | preview
+weak   (~8B)      | Llama 8B (Groq)  | 0.8s  |  42  |  89   |    131    | $0.00001 | stop   | …
+medium (~70B)     | Llama 70B (Groq) | 2.3s  |  42  |  156  |    198    | $0.00011 | stop   | …
+strong (frontier) | GPT-4o           | 4.7s  |  42  |  201  |    243    | $0.00213 | stop   | …
+```
+
+Full answers are printed below the table. Cost is calculated from `PRICING` in `config.py`
+(USD per 1M tokens). Sources: [OpenAI pricing](https://platform.openai.com/docs/pricing),
+[Groq pricing](https://groq.com/pricing), [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing).
+
+`/debug` shows the exact JSON payload sent to each provider before the call.
+
+### Demo flow
+
+```
+/bench Есть Python-библиотека fastmatrix для умножения матриц. Как установить и пример?
+/bench У Ани 2 яблока, у Васи 3 груши. Сколько всего фруктов? Потом Аня съела одно яблоко.
+```
+
+Good demo questions trigger hallucinations or logic errors on weak models but not on strong.
+
+---
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
@@ -250,6 +301,7 @@ Recommended flow for the video: show `temp=0` (3 identical runs), then `temp=1.2
 | 2 | Response format & control | `/params`, `/hint` | `client.get_response`, `cli.ask_params` | done | _link_ |
 | 3 | Reasoning strategies | `/solve`, `/judge` | `techniques.py`, `cli.run_solve` | done | _link_ |
 | 4 | Temperature sweep | `/temp`, `/debug` | `cli.run_temp`, `cli.print_request` | done | _link_ |
+| 5 | Model tiers (weak/medium/strong) | `/bench` | `config.BENCH_TIERS`, `client.timed_response`, `cli.run_bench` | done | _link_ |
 
 All days share one codebase; the table maps each day to its commands and the modules that
-implement them. Per-day code snapshots are git tags (`week1-day1` … `week1-day4`).
+implement them. 
