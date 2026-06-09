@@ -6,10 +6,10 @@
 week_01/
 ├── main.py      # entrypoint
 ├── cli.py       # terminal UI (rich, меню, chat loop)
-├── client.py    # API logic (create client, streaming)
-├── config.py    # provider registry (urls, models, env vars)
 └── README.md
 ```
+
+API logic and provider registry live in `shared/` (`shared.client`, `shared.config`).
 
 ## Run
 

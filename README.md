@@ -5,11 +5,13 @@ Personal submissions repo. Python 3.12 + [uv](https://docs.astral.sh/uv/).
 ## Layout
 
 ```
+shared/
+  config.py      ← providers, models, pricing
+  client.py      ← HTTP client, streaming, API calls
+  cli_helpers.py ← shared UI helpers (pick_provider)
 week_XX/
   main.py        ← entrypoint
   cli.py         ← terminal UI
-  client.py      ← API logic
-  config.py      ← providers/models
   README.md      ← week description + daily progress
 ```
 
@@ -17,11 +19,13 @@ week_XX/
 
 ```bash
 uv sync                        # install deps
-uv run python -m week_01.main  # run current week
+uv run python -m week_01.main  # week 1 — LLM playground
+uv run python -m week_02.main  # week 2 — agent chat
 ```
 
 ## Progress
 
 | Week | Theme | Status |
 |------|-------|--------|
-| 1 | Basics of LLMs & prompting | in progress |
+| 1 | Basics of LLMs & prompting | done |
+| 2 | Agent internals: context, memory, planning, tools | in progress |

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass
 
 from openai import OpenAI
@@ -12,15 +11,15 @@ from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
 
-from week_01.client import (
-    available_providers,
+from shared.cli_helpers import pick_provider
+from shared.client import (
     build_payload,
     get_client,
     get_response,
     stream_response,
     timed_response,
 )
-from week_01.config import BENCH_TIERS, PRICING
+from shared.config import BENCH_TIERS, PRICING
 from week_01.techniques import (
     JUDGE_TEMPLATE,
     META_STEP1_TEMPLATE,
@@ -53,6 +52,7 @@ class BenchRow:
     finish: str
     content: str
 
+
 COMMANDS = {
     "/bench <q>": "run one question on weak / medium / strong models and compare",
     "/params": "configure API params (max_tokens, stop, json) — toggle on/off",
@@ -74,29 +74,6 @@ def print_help() -> None:
     for cmd, desc in COMMANDS.items():
         t.add_row(f"[cyan]{cmd}[/]", f"[dim]{desc}[/]")
     console.print(t)
-
-
-def pick_provider() -> str:
-    providers = available_providers()
-    if not providers:
-        console.print(
-            "[bold red]No API keys found.[/] "
-            "Copy [cyan].env.example[/] → [cyan].env[/] and fill in your keys."
-        )
-        sys.exit(1)
-
-    console.print(Panel("[bold]Available models[/]", expand=False))
-    for i, name in enumerate(providers, 1):
-        console.print(f"  [cyan]{i}[/]. {name}")
-
-    while True:
-        choice = Prompt.ask("\nSelect model", default="1")
-        if choice.lower() in {"exit", "quit", "выход"}:
-            console.print("\n[dim]Bye![/]")
-            sys.exit(0)
-        if choice.isdigit() and 1 <= int(choice) <= len(providers):
-            return providers[int(choice) - 1]
-        console.print("[red]Invalid choice, try again.[/]")
 
 
 def ask_params() -> dict:
@@ -332,8 +309,15 @@ def run_bench(question: str, *, debug: bool = False) -> None:
             else:
                 rows.append(
                     BenchRow(
-                        tier, provider_name, f"{elapsed:.2f}s",
-                        "?", "?", "?", "n/a", finish, content,
+                        tier,
+                        provider_name,
+                        f"{elapsed:.2f}s",
+                        "?",
+                        "?",
+                        "?",
+                        "n/a",
+                        finish,
+                        content,
                     )
                 )
         except Exception as e:
@@ -354,8 +338,15 @@ def run_bench(question: str, *, debug: bool = False) -> None:
     for r in rows:
         preview = r.content[:80].replace("\n", " ") + ("…" if len(r.content) > 80 else "")
         t.add_row(
-            r.tier, r.provider, r.time, r.prompt_tok, r.completion_tok, r.total_tok, r.cost,
-            r.finish, preview,
+            r.tier,
+            r.provider,
+            r.time,
+            r.prompt_tok,
+            r.completion_tok,
+            r.total_tok,
+            r.cost,
+            r.finish,
+            preview,
         )
     console.print(t)
     console.print(f"[dim]Total experiment cost: ${total_cost:.5f}[/]\n")

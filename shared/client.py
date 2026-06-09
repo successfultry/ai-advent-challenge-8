@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from week_01.config import PROVIDERS
+from shared.config import PROVIDERS
 
 load_dotenv()
 
