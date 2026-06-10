@@ -3,14 +3,14 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from shared.client import get_client, stream_response
-from week_02.memory import Msg, SessionMemory
+from week_02.memory import Memory, Msg
 
 
 class Agent:
     def __init__(
         self,
         provider_name: str,
-        memory: SessionMemory,
+        memory: Memory,
         system_prompt: str | None = None,
     ) -> None:
         self.client, self.model_id = get_client(provider_name)

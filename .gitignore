@@ -38,3 +38,6 @@ Thumbs.db
 *.gif
 recordings/
 demos/
+
+# --- User data ---
+data/

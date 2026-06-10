@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -8,7 +10,7 @@ from rich.table import Table
 
 from shared.cli_helpers import pick_provider
 from week_02.agent import Agent
-from week_02.memory import SessionMemory
+from week_02.memory import FileMemory
 
 console = Console()
 
@@ -71,9 +73,10 @@ def _chat_loop(agent: Agent) -> bool:
         console.print("\n")
 
 
-def run() -> None:
+def run(user: str = "default") -> None:
     console.print(Panel("[bold]Week 02 · Agent Chat[/]", expand=False))
-    memory = SessionMemory()
+    filepath = Path("data") / f"history_{user}.json"
+    memory = FileMemory(filepath)
 
     while True:
         provider = pick_provider()

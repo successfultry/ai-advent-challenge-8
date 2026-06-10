@@ -4,19 +4,30 @@
 
 ```
 week_02/
-├── main.py      # entrypoint
+├── main.py      # entrypoint (argparse --user)
 ├── cli.py       # terminal UI (rich, chat loop)
-├── agent.py     # Agent — orchestrator: SessionMemory + LLM client
-└── memory.py    # SessionMemory — stores conversation history
+├── agent.py     # Agent — orchestrator: Memory + LLM client
+└── memory.py    # Memory (Protocol), SessionMemory, FileMemory
 ```
+
+`Memory` is a `typing.Protocol` defining the interface (`add`, `history`, `pop_last`, `clear`).
+`SessionMemory` stores history in RAM (lost on exit).
+`FileMemory` stores history in `data/history_{user}.json` (persistent).
 
 Providers and HTTP client live in `shared/` (imported from `shared.client` and `shared.config`).
 
 ## Run
 
 ```bash
+# Default user (history_default.json)
 uv run python -m week_02.main
+
+# Specific user (history_john.json)
+uv run python -m week_02.main --user=john
+uv run python -m week_02.main -u alice
 ```
+
+Each user has a separate history file in `data/`.
 
 Requires a `.env` in the repo root with at least one key:
 
@@ -81,10 +92,54 @@ You: Расскажи о Python в двух предложениях
 You: А чем он отличается от Go?
 ```
 
+## Day 7 — Persistent Memory
+
+FileMemory stores chat history in `data/history_{user}.json`. The dialog survives restarts:
+- Atomic writes (tempfile + rename) prevent corruption.
+- Validation: if the last message is `role == "user"` (orphaned after crash), it's dropped on load.
+- JSON format: `ensure_ascii=False, indent=2` for readability and non-ASCII support.
+- `/clear` empties both RAM and file.
+
+`Agent` depends on `Memory` Protocol (duck typing). This allows swapping `SessionMemory` for `FileMemory` without changing `Agent`.
+
+### Demo (for the video)
+
+**Show persistence:**
+```bash
+uv run python -m week_02.main --user=john
+You: Tell me about Python
+# Get an answer
+exit
+
+uv run python -m week_02.main --user=john
+You: What did I ask you before?
+# Agent remembers the previous question
+```
+
+**Show multi-user:**
+```bash
+uv run python -m week_02.main --user=alice
+You: I prefer Rust
+exit
+
+uv run python -m week_02.main --user=john
+You: What language do I like?
+# John's history is separate from Alice's
+```
+
+**Show /clear:**
+```bash
+/clear
+# Check the file:
+cat data/history_john.json
+# File contains []
+```
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
 |-----|------|----------|------|--------|-------|
 | 6 | First Agent (streaming CLI, SessionMemory) | `/clear`, `/switch`, `/help` | `agent.py`, `memory.py`, `cli.py` | done | _link_ |
+| 7 | Persistent Memory (FileMemory, Protocol, argparse) | `--user` | `memory.py` (FileMemory, Protocol), `main.py` (argparse) | done | _link_ |
 
 All days share one codebase; the table maps each day to its commands and the modules that implement them.
