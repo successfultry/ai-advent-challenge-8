@@ -12,6 +12,7 @@ from shared.cli_helpers import pick_provider
 from shared.pricing import cost
 from week_02.agent import Agent
 from week_02.memory import FileMemory
+from week_02.stats import TokenStats
 
 console = Console()
 
@@ -100,10 +101,11 @@ def run(user: str = "default") -> None:
     console.print(Panel("[bold]Week 02 · Agent Chat[/]", expand=False))
     filepath = Path("data") / f"history_{user}.json"
     memory = FileMemory(filepath)
+    stats = TokenStats()
 
     while True:
         provider = pick_provider()
-        agent = Agent(provider, memory, system_prompt=SYSTEM_PROMPT)
+        agent = Agent(provider, memory, stats, system_prompt=SYSTEM_PROMPT)
         switch = _chat_loop(agent)
         if not switch:
             break

@@ -98,7 +98,7 @@ FileMemory stores chat history in `data/history_{user}.json`. The dialog survive
 - Atomic writes (tempfile + rename) prevent corruption.
 - Validation: if the last message is `role == "user"` (orphaned after crash), it's dropped on load.
 - JSON format: `ensure_ascii=False, indent=2` for readability and non-ASCII support.
-- `/clear` empties both RAM and file.
+- `/clear` empties chat history (both RAM and file); session token stats are not affected.
 
 `Agent` depends on `Memory` Protocol (duck typing). This allows swapping `SessionMemory` for `FileMemory` without changing `Agent`.
 
@@ -143,8 +143,9 @@ After each model response, a dim status line shows token usage and cost:
 Tokens: 312 prompt + 47 completion = 359 | Cost: $0.000135 | Session: 731 tokens ($0.000274)
 ```
 
-When the accumulated context exceeds `MAX_CONTEXT_TOKENS = 1000` (demo knob), the oldest
-`user`/`assistant` pairs are dropped from the slice sent to the API:
+When the accumulated context exceeds `MAX_CONTEXT_TOKENS = 500` (demo knob), the oldest
+messages are dropped one by one from the slice sent to the API (and a leading `assistant`
+message is also dropped, so the trimmed context still starts with a `user` turn):
 
 ```
 [yellow]Context limit reached. Dropped 4 old messages — the model no longer sees them.[/]
@@ -152,9 +153,9 @@ When the accumulated context exceeds `MAX_CONTEXT_TOKENS = 1000` (demo knob), th
 
 **Key design points:**
 - Token cost is calculated via `shared/pricing.py` using `PRICING` from `shared/config.py`.
-- `TokenStats` (in `week_02/stats.py`) tracks session totals in RAM; resets on `/clear`,
-  preserved on `/switch`.
-- `MAX_CONTEXT_TOKENS = 1000` and the `1 token ≈ 4 chars` heuristic are **demo settings**,
+- `TokenStats` (in `week_02/stats.py`) tracks session totals in RAM; preserved on `/clear`
+  and `/switch` — spent tokens are not undone by clearing history.
+- `MAX_CONTEXT_TOKENS = 500` and the `1 token ≈ 4 chars` heuristic are **demo settings**,
   not a real tokenizer.
 - Only the slice sent to the API is trimmed. The `data/history_{user}.json` file from Day 7
   remains complete — nothing is lost from disk.
@@ -193,10 +194,11 @@ cat data/history_demo.json
 # Full history still there — only the API slice was trimmed
 ```
 
-**Show /clear resets stats:**
+**Show /clear resets history but not stats:**
 ```bash
 /clear
-# dim line: Session: 0 tokens ($0.000000) on next response
+# History is gone — but dim line still shows accumulated session tokens/cost
+# Stats survive because the money was already spent
 ```
 
 ## Progress

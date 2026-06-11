@@ -16,13 +16,14 @@ class Agent:
         self,
         provider_name: str,
         memory: Memory,
+        stats: TokenStats,
         system_prompt: str | None = None,
     ) -> None:
         self.client, self.model_id = get_client(provider_name)
         self.provider_name = provider_name
         self.memory = memory
         self.system_prompt = system_prompt
-        self.stats = TokenStats()
+        self.stats = stats
         self.last_usage: Any = None
         self.last_dropped: int = 0
 
@@ -72,4 +73,3 @@ class Agent:
 
     def reset(self) -> None:
         self.memory.clear()
-        self.stats = TokenStats()

@@ -37,6 +37,7 @@ class FileMemory:
     def __init__(self, filepath: Path) -> None:
         self.filepath = filepath
         self.messages: list[Msg] = []
+        self.filepath.parent.mkdir(parents=True, exist_ok=True)
         self._load()
 
     def _load(self) -> None:
@@ -62,8 +63,6 @@ class FileMemory:
             self._save()
 
     def _save(self) -> None:
-        self.filepath.parent.mkdir(parents=True, exist_ok=True)
-
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
