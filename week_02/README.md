@@ -135,11 +135,76 @@ cat data/history_john.json
 # File contains []
 ```
 
+## Day 8 — Token Accounting & Context Overflow
+
+After each model response, a dim status line shows token usage and cost:
+
+```
+Tokens: 312 prompt + 47 completion = 359 | Cost: $0.000135 | Session: 731 tokens ($0.000274)
+```
+
+When the accumulated context exceeds `MAX_CONTEXT_TOKENS = 1000` (demo knob), the oldest
+`user`/`assistant` pairs are dropped from the slice sent to the API:
+
+```
+[yellow]Context limit reached. Dropped 4 old messages — the model no longer sees them.[/]
+```
+
+**Key design points:**
+- Token cost is calculated via `shared/pricing.py` using `PRICING` from `shared/config.py`.
+- `TokenStats` (in `week_02/stats.py`) tracks session totals in RAM; resets on `/clear`,
+  preserved on `/switch`.
+- `MAX_CONTEXT_TOKENS = 1000` and the `1 token ≈ 4 chars` heuristic are **demo settings**,
+  not a real tokenizer.
+- Only the slice sent to the API is trimmed. The `data/history_{user}.json` file from Day 7
+  remains complete — nothing is lost from disk.
+- Demo is honest: trimming is done by the app, not the provider. Some gateways (e.g. OpenRouter)
+  silently auto-trim, which hides what actually breaks at overflow.
+- **Why overflow matters:** when early messages leave the context window, the model doesn't
+  know it lost them — it fills the gap with plausible fabrication. This is a primary source
+  of hallucinations.
+
+### Demo
+
+**Show token growth:**
+```bash
+uv run python -m week_02.main --user=demo
+You: My favourite language is Python
+# dim line: Session: ~80 tokens
+You: Tell me about it in detail
+# dim line: Session grows
+You: What are its main use cases?
+# Session totals keep rising with each turn
+```
+
+**Show context overflow and forgetting:**
+```bash
+# Keep sending long messages until:
+# [yellow]Context limit reached. Dropped N old messages — the model no longer sees them.[/]
+
+You: What is my favourite language?
+# Model no longer has the first message → guesses or admits it doesn't know
+```
+
+**Show history file is untouched:**
+```bash
+# In another terminal:
+cat data/history_demo.json
+# Full history still there — only the API slice was trimmed
+```
+
+**Show /clear resets stats:**
+```bash
+/clear
+# dim line: Session: 0 tokens ($0.000000) on next response
+```
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
 |-----|------|----------|------|--------|-------|
 | 6 | First Agent (streaming CLI, SessionMemory) | `/clear`, `/switch`, `/help` | `agent.py`, `memory.py`, `cli.py` | done | _link_ |
 | 7 | Persistent Memory (FileMemory, Protocol, argparse) | `--user` | `memory.py` (FileMemory, Protocol), `main.py` (argparse) | done | _link_ |
+| 8 | Token accounting + context overflow demo | auto stats line | `agent.py` (`_truncate`, `TokenStats`), `stats.py`, `shared/pricing.py`, `cli.py` | done | _link_ |
 
 All days share one codebase; the table maps each day to its commands and the modules that implement them.

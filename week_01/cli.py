@@ -19,7 +19,8 @@ from shared.client import (
     stream_response,
     timed_response,
 )
-from shared.config import BENCH_TIERS, PRICING
+from shared.config import BENCH_TIERS
+from shared.pricing import cost
 from week_01.techniques import (
     JUDGE_TEMPLATE,
     META_STEP1_TEMPLATE,
@@ -290,9 +291,8 @@ def run_bench(question: str, *, debug: bool = False) -> None:
             console.print(content.strip())
             console.print()
             if usage:
-                in_p, out_p = PRICING.get(model_id, (0.0, 0.0))
-                cost = (usage.prompt_tokens * in_p + usage.completion_tokens * out_p) / 1_000_000
-                total_cost += cost
+                turn_cost = cost(model_id, usage.prompt_tokens, usage.completion_tokens)
+                total_cost += turn_cost
                 rows.append(
                     BenchRow(
                         tier=tier,
@@ -301,7 +301,7 @@ def run_bench(question: str, *, debug: bool = False) -> None:
                         prompt_tok=str(usage.prompt_tokens),
                         completion_tok=str(usage.completion_tokens),
                         total_tok=str(usage.total_tokens),
-                        cost=f"${cost:.5f}",
+                        cost=f"${turn_cost:.5f}",
                         finish=finish,
                         content=content,
                     )

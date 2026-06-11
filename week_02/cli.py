@@ -9,6 +9,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from shared.cli_helpers import pick_provider
+from shared.pricing import cost
 from week_02.agent import Agent
 from week_02.memory import FileMemory
 
@@ -69,8 +70,30 @@ def _chat_loop(agent: Agent) -> bool:
         except Exception as e:
             agent.memory.pop_last()
             console.print(f"\n[red]Error:[/] {e}")
+            console.print("\n")
+            continue
 
         console.print("\n")
+
+        if agent.last_dropped > 0:
+            console.print(
+                f"[yellow]Context limit reached. Dropped {agent.last_dropped} "
+                f"old messages — the model no longer sees them.[/]"
+            )
+
+        if agent.last_usage is not None:
+            u = agent.last_usage
+            turn = cost(agent.model_id, u.prompt_tokens, u.completion_tokens)
+            console.print(
+                f"[dim]Tokens: {u.prompt_tokens} prompt + {u.completion_tokens} completion"
+                f" = {u.prompt_tokens + u.completion_tokens}"
+                f" | Cost: ${turn:.6f}"
+                f" | Session: {agent.stats.total} tokens (${agent.stats.cost:.6f})[/]"
+            )
+        else:
+            console.print("[dim]Tokens: n/a[/]")
+
+        console.print()
 
 
 def run(user: str = "default") -> None:
