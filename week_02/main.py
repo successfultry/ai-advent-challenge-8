@@ -10,5 +10,11 @@ if __name__ == "__main__":
         default="default",
         help="user name for persistent history file",
     )
+    parser.add_argument(
+        "--policy",
+        choices=["sliding", "summary"],
+        default="sliding",
+        help="context policy: sliding window or summary compression",
+    )
     args = parser.parse_args()
-    run(user=args.user)
+    run(user=args.user, policy_name=args.policy)

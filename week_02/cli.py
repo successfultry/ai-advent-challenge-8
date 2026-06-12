@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 from rich.console import Console
@@ -9,10 +10,13 @@ from rich.rule import Rule
 from rich.table import Table
 
 from shared.cli_helpers import pick_provider
+from shared.client import get_client
 from shared.pricing import cost
 from week_02.agent import Agent
+from week_02.context import SlidingWindowPolicy, SummaryPolicy
 from week_02.memory import FileMemory
 from week_02.stats import TokenStats
+from week_02.summarizer import summarize
 
 console = Console()
 
@@ -76,11 +80,14 @@ def _chat_loop(agent: Agent) -> bool:
 
         console.print("\n")
 
-        if agent.last_dropped > 0:
+        if hasattr(agent.policy, "last_dropped") and agent.policy.last_dropped > 0:
             console.print(
-                f"[yellow]Context limit reached. Dropped {agent.last_dropped} "
+                f"[yellow]Context limit reached. Dropped {agent.policy.last_dropped} "
                 f"old messages — the model no longer sees them.[/]"
             )
+
+        if agent.last_compression is not None and agent.last_compression.changed:
+            console.print("[dim cyan]Context compressed (summary updated)[/]")
 
         if agent.last_usage is not None:
             u = agent.last_usage
@@ -97,15 +104,24 @@ def _chat_loop(agent: Agent) -> bool:
         console.print()
 
 
-def run(user: str = "default") -> None:
+def run(user: str = "default", policy_name: str = "sliding") -> None:
     console.print(Panel("[bold]Week 02 · Agent Chat[/]", expand=False))
     filepath = Path("data") / f"history_{user}.json"
     memory = FileMemory(filepath)
     stats = TokenStats()
+    provider = pick_provider()
+
+    if policy_name == "sliding":
+        policy = SlidingWindowPolicy()
+    else:
+        client, model_id = get_client(provider)
+        summary_path = Path("data") / f"summary_{user}.json"
+        summarize_fn = partial(summarize, client, model_id)
+        policy = SummaryPolicy(summarize_fn, summary_path, summary_model_id=model_id)
 
     while True:
-        provider = pick_provider()
-        agent = Agent(provider, memory, stats, system_prompt=SYSTEM_PROMPT)
+        agent = Agent(provider, memory, policy, stats, system_prompt=SYSTEM_PROMPT)
         switch = _chat_loop(agent)
         if not switch:
             break
+        provider = pick_provider()

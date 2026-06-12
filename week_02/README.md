@@ -143,9 +143,10 @@ After each model response, a dim status line shows token usage and cost:
 Tokens: 312 prompt + 47 completion = 359 | Cost: $0.000135 | Session: 731 tokens ($0.000274)
 ```
 
-When the accumulated context exceeds `MAX_CONTEXT_TOKENS = 500` (demo knob), the oldest
-messages are dropped one by one from the slice sent to the API (and a leading `assistant`
-message is also dropped, so the trimmed context still starts with a `user` turn):
+When the accumulated context exceeds the `SlidingWindowPolicy(max_tokens=500)` budget
+(demo knob), the oldest messages are dropped one by one from the slice sent to the API
+(and a leading `assistant` message is also dropped, so the trimmed context still starts
+with a `user` turn):
 
 ```
 [yellow]Context limit reached. Dropped 4 old messages — the model no longer sees them.[/]
@@ -155,8 +156,9 @@ message is also dropped, so the trimmed context still starts with a `user` turn)
 - Token cost is calculated via `shared/pricing.py` using `PRICING` from `shared/config.py`.
 - `TokenStats` (in `week_02/stats.py`) tracks session totals in RAM; preserved on `/clear`
   and `/switch` — spent tokens are not undone by clearing history.
-- `MAX_CONTEXT_TOKENS = 500` and the `1 token ≈ 4 chars` heuristic are **demo settings**,
-  not a real tokenizer.
+- `max_tokens=500` (in `SlidingWindowPolicy`) and the `1 token ≈ 4 chars` heuristic are
+  **demo settings**, not a real tokenizer. Note: `4 chars/token` is English-calibrated;
+  Cyrillic is ~3 chars/token, so the actual API token count at the drop threshold is higher.
 - Only the slice sent to the API is trimmed. The `data/history_{user}.json` file from Day 7
   remains complete — nothing is lost from disk.
 - Demo is honest: trimming is done by the app, not the provider. Some gateways (e.g. OpenRouter)
@@ -201,12 +203,42 @@ cat data/history_demo.json
 # Stats survive because the money was already spent
 ```
 
+## Day 9 — Context Compression via Summary
+
+Two pluggable policies via `--policy`:
+
+- `sliding` (default): Day 8 truncation — oldest messages dropped when context exceeds limit.
+- `summary`: last N messages kept raw; older messages folded into an LLM-generated summary stored in `data/summary_{user}.json`. `build_messages` injects the summary as a system turn, then appends all uncompressed messages.
+
+Summary is incremental: only newly-old messages are sent to the summarizer. Raw history file remains complete.
+
+Summary state format:
+```json
+{"summary": "• Fact A\n• User prefers X", "compressed_up_to": 12}
+```
+
+Summary model is fixed to the provider chosen at startup and does not change on `/switch`.
+Summary usage is attributed via `CompressionResult.usage_model_id` to the summary model (not the
+current chat model) for accurate session cost even after `/switch`.
+`/clear` resets both memory and summary state; session stats are preserved.
+
+Demo steps:
+```bash
+uv run python -m week_02.main --user=demo --policy=sliding
+# 15+ messages → overflow + forgetting (Day 8 behaviour)
+
+uv run python -m week_02.main --user=demo2 --policy=summary
+# same dialogue → summary kicks in, early facts retained via summary
+cat data/summary_demo2.json
+```
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
 |-----|------|----------|------|--------|-------|
 | 6 | First Agent (streaming CLI, SessionMemory) | `/clear`, `/switch`, `/help` | `agent.py`, `memory.py`, `cli.py` | done | _link_ |
 | 7 | Persistent Memory (FileMemory, Protocol, argparse) | `--user` | `memory.py` (FileMemory, Protocol), `main.py` (argparse) | done | _link_ |
-| 8 | Token accounting + context overflow demo | auto stats line | `agent.py` (`_truncate`, `TokenStats`), `stats.py`, `shared/pricing.py`, `cli.py` | done | _link_ |
+| 8 | Token accounting + context overflow demo | auto stats line | `context.py` (`SlidingWindowPolicy`), `stats.py`, `shared/pricing.py`, `cli.py` | done | _link_ |
+| 9 | Context compression (sliding vs summary policies) | `--policy` | `context.py`, `summarizer.py`, `agent.py`, `cli.py`, `main.py` | done | _link_ |
 
 All days share one codebase; the table maps each day to its commands and the modules that implement them.

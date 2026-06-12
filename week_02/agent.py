@@ -4,11 +4,9 @@ from collections.abc import Iterator
 from typing import Any
 
 from shared.client import get_client, stream_response
-from week_02.memory import Memory, Msg
+from week_02.context import CompressionResult, ContextPolicy
+from week_02.memory import Memory
 from week_02.stats import TokenStats
-
-# 1 token ≈ 4 chars — rough heuristic for demo context limit
-MAX_CONTEXT_TOKENS = 500
 
 
 class Agent:
@@ -16,47 +14,28 @@ class Agent:
         self,
         provider_name: str,
         memory: Memory,
+        policy: ContextPolicy,
         stats: TokenStats,
         system_prompt: str | None = None,
     ) -> None:
         self.client, self.model_id = get_client(provider_name)
         self.provider_name = provider_name
         self.memory = memory
-        self.system_prompt = system_prompt
+        self.policy = policy
         self.stats = stats
+        self.system_prompt = system_prompt
         self.last_usage: Any = None
-        self.last_dropped: int = 0
-
-    def _truncate(self, messages: list[Msg]) -> list[Msg]:
-        msgs = list(messages)
-        start = 1 if msgs and msgs[0]["role"] == "system" else 0
-        char_budget = MAX_CONTEXT_TOKENS * 4
-        total_chars = sum(len(m["content"]) for m in msgs)
-
-        while total_chars > char_budget and start < len(msgs) - 1:
-            total_chars -= len(msgs[start]["content"])
-            msgs.pop(start)
-            self.last_dropped += 1
-
-        # strict APIs want the first non-system message to be a user turn
-        if start < len(msgs) - 1 and msgs[start]["role"] == "assistant":
-            msgs.pop(start)
-            self.last_dropped += 1
-
-        return msgs
-
-    def _build_messages(self) -> list[Msg]:
-        msgs: list[Msg] = []
-        if self.system_prompt:
-            msgs.append({"role": "system", "content": self.system_prompt})
-        msgs.extend(self.memory.history())
-        return self._truncate(msgs)
+        self.last_compression: CompressionResult | None = None
 
     def ask_stream(self, user_input: str) -> Iterator[str]:
         self.last_usage = None
-        self.last_dropped = 0
+        self.last_compression = None
         self.memory.add("user", user_input)
-        messages = self._build_messages()
+        result = self.policy.compress_if_needed(self.memory)
+        if result.changed and result.usage:
+            self.stats.add(result.usage, result.usage_model_id or self.model_id)
+        self.last_compression = result
+        messages = self.policy.build_messages(self.memory, self.system_prompt)
 
         chunks: list[str] = []
         for piece in stream_response(self.client, self.model_id, messages):
@@ -73,3 +52,4 @@ class Agent:
 
     def reset(self) -> None:
         self.memory.clear()
+        self.policy.reset_state()
