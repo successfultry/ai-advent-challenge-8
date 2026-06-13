@@ -4,10 +4,13 @@
 
 ```
 week_02/
-├── main.py      # entrypoint (argparse --user)
-├── cli.py       # terminal UI (rich, chat loop)
-├── agent.py     # Agent — orchestrator: Memory + LLM client
-└── memory.py    # Memory (Protocol), SessionMemory, FileMemory
+├── main.py        # entrypoint (argparse --user, --policy)
+├── cli.py         # terminal UI (rich, chat loop)
+├── agent.py       # Agent — orchestrator: Memory + Policy + LLM
+├── memory.py      # Memory (Protocol), SessionMemory, FileMemory
+├── context.py     # ContextPolicy (Protocol), SlidingWindow, Summary
+├── stats.py       # TokenStats (session totals)
+└── summarizer.py  # LLM-based summary generation
 ```
 
 `Memory` is a `typing.Protocol` defining the interface (`add`, `history`, `pop_last`, `clear`).
@@ -211,6 +214,11 @@ Two pluggable policies via `--policy`:
 - `summary`: last N messages kept raw; older messages folded into an LLM-generated summary stored in `data/summary_{user}.json`. `build_messages` injects the summary as a system turn, then appends all uncompressed messages.
 
 Summary is incremental: only newly-old messages are sent to the summarizer. Raw history file remains complete.
+The summarizer uses a merge-aware prompt: first compression summarizes from scratch;
+subsequent compressions merge the previous summary with new messages, explicitly
+instructing the model to carry all earlier facts forward. Retention quality depends
+on the summarizer model (DeepSeek R1 preserves facts across 2+ compressions; GPT-4o
+may drop them on long chunks — an honest lossy trade-off).
 
 Summary state format:
 ```json
