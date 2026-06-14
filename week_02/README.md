@@ -439,19 +439,23 @@ Then verify branch isolation:
 # → цель, SQLite, теги, голосовые заметки, Google Calendar
 ```
 
-**Results table** (fill after running):
+**Results** (measured on the 10-message ТЗ scenario, DeepSeek V3):
 
 | Criterion | Sliding | Facts | Branching |
 |-----------|---------|-------|-----------|
-| Recalls goal/stack/constraints? | _fill_ | _fill_ | _fill_ |
-| Loses key details? | _fill_ | _fill_ | _fill_ |
-| Extra LLM calls per turn | 0 | 1 | 0 |
-| Scales to long conversations? | Window is fixed | Facts grow but stay compact | Branches grow unbounded |
-| UX | Transparent but lossy | Automatic | Manual branch management |
+| Recalls goal/stack/constraints? | Partial — lost "Python-only / free hosting / min deps" | Full | Full (per branch) |
+| Hallucinations? | Yes — invented "no Docker / apscheduler / asyncio" for the dropped constraints | None | None |
+| Extra LLM calls per turn | 0 | 1 (facts extraction) | 0 |
+| Session tokens / cost | ~3.9k / $0.0026 (cheapest, lossy) | ~33.9k / $0.0127 (priciest, reliable) | ~24k / $0.010 (mid) |
+| Scales to long conversations? | Window fixed → forgets | Facts compact → scales | Branches grow unbounded, but stay short |
+| Best for | throwaway chats | long linear spec where everything matters | exploring alternative variants |
 
-**Expected outcome:** `sliding` loses early constraints after overflow; `facts` retains
-everything via the facts block; `branching` retains everything via full history in short
-forked branches — two spec variants coexist without cross-contamination.
+**Outcome:** `sliding` doesn't just forget — once early messages fall out of the window
+the model **confidently fabricates** replacements (it invented "no Docker", "apscheduler",
+"asyncio" — none were ever said). This is a primary source of hallucination. `facts` fixes
+it with full recall at ~5× the token cost. `branching` solves a different problem: `variant_a`
+(reminders + Markdown export) and `variant_b` (voice via Whisper + Google Calendar) diverged
+from a shared checkpoint and each recalled its own spec with zero cross-contamination.
 
 ## Progress
 
