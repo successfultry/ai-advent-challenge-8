@@ -296,85 +296,85 @@ forked branch, `sliding` on `main`.
 
 ### Demo (for the video)
 
+Clean up before recording (fresh users):
+```bash
+del data\history_d10a.json data\facts_d10a.json data\branches_d10a.json 2>$null
+del data\history_d10b.json data\facts_d10b.json data\branches_d10b.json 2>$null
+del data\history_d10c.json data\facts_d10c.json data\branches_d10c.json 2>$null
+del data\history_d10c__experiment.json data\facts_d10c__experiment.json 2>$null
+```
+
 **1. Facts extraction + cost skip-guard:**
+
 ```bash
-uv run python -m week_02.main --user=demo --policy=facts
+uv run python -m week_02.main --user=d10a --policy=facts
 ```
-```
-Меня зовут Виктор, мне 30 лет, я программист из Москвы
-# → dim line: Facts updated (N facts)
-ок
-# → NO "Facts updated" (skip-guard: < 12 chars)
-да
-# → NO "Facts updated" (skip-guard: stop-list)
-Я работаю на Python и Go, предпочитаю Linux
-# → Facts updated (count grows)
-```
+
+| You type | Expected output | Why |
+|----------|----------------|-----|
+| `Меня зовут Иван, мне 30 лет, я программист из Мордовии` | dim: `Facts updated (N facts)` | Informative message → facts extracted |
+| `ок` | **No** `Facts updated` line | Skip-guard: < 12 chars |
+| `да` | **No** `Facts updated` line | Skip-guard: word in stop-list |
+| `Я работаю на Python и Go, предпочитаю Linux` | dim: `Facts updated (N facts)` — N grows | New info → facts appended |
+| `Что ты обо мне знаешь?` | Model lists: Иван, 30, Мордовия, Python/Go, Linux | Answer built from facts block |
+| `exit` | | |
+
+Verify persisted facts:
 ```bash
-cat data/facts_demo.json   # key-value facts persisted
+cat data/facts_d10a.json
+# → {"name": "Иван", "age": "30", "profession": "программист", ...}
 ```
 
 **2. Runtime policy switch (history preserved):**
+
+```bash
+uv run python -m week_02.main --user=d10b --policy=facts
 ```
-Меня зовут Алексей, я дизайнер из Питера
-/policy sliding     # → Policy switched to sliding
-Что ты знаешь обо мне?     # still in window
-/policy facts       # → Policy switched to facts (reloads facts from disk)
-Что ты знаешь обо мне?     # → recalls Алексей, дизайнер, Питер
-```
+
+| You type | Expected output |
+|----------|----------------|
+| `Меня зовут Алексей, я дизайнер из Питера` | dim: `Facts updated (N facts)` |
+| `/policy sliding` | dim: `Policy switched to sliding.` |
+| `Что ты знаешь обо мне?` | Model answers — Алексей, Питер (still in sliding window) |
+| `/policy facts` | dim: `Policy switched to facts.` |
+| `Что ты знаешь обо мне?` | Model answers — Алексей, дизайнер, Питер (facts reloaded from disk) |
+| `exit` | | |
 
 **3. Branching with branch-scoped facts:**
-```
-Меня зовут Виктор, я из Москвы
-/branch list                       # → main ← active
-/branch new experiment             # → Created and switched to branch experiment
-Забудь всё. Теперь меня зовут Алексей и я из Питера
-/branch switch main
-Как меня зовут и откуда я?         # → Виктор, Москва (main facts)
-/branch switch experiment
-Как меня зовут и откуда я?         # → Алексей, Питер (experiment facts)
-```
+
 ```bash
-cat data/facts_demo.json              # Виктор / Москва
-cat data/facts_demo__experiment.json  # Алексей / Питер
+uv run python -m week_02.main --user=d10c --policy=facts
 ```
 
-### Strategy comparison (the task deliverable)
+| You type | Expected output |
+|----------|----------------|
+| `Меня зовут Дмитрий, я из Казани` | dim: `Facts updated (N facts)` |
+| `/branch list` | `main ← active` |
+| `/branch new experiment` | dim: `Created and switched to branch experiment.` |
+| `Забудь всё. Теперь меня зовут Сергей и я из Новосибирска` | dim: `Facts updated` (experiment branch facts) |
+| `/branch switch main` | dim: `Switched to branch main.` |
+| `Как меня зовут и откуда я?` | → **Дмитрий, Казань** (main facts) |
+| `/branch switch experiment` | dim: `Switched to branch experiment.` |
+| `Как меня зовут и откуда я?` | → **Сергей, Новосибирск** (experiment facts) |
+| `/branch list` | `main`, `experiment ← active` |
+| `exit` | |
 
-Run the **same scenario** — collecting a short spec (ТЗ), ~10-15 messages — on each
-strategy, then compare. Suggested copy-paste scenario:
-
-```
-Давай соберём ТЗ на телеграм-бота для заметок
-Цель: пользователь шлёт текст, бот сохраняет и умеет искать по тегам
-Ограничение: только Python, хостинг — бесплатный
-Предпочтение: минимум зависимостей, без тяжёлых фреймворков
-Договорились: хранилище — SQLite
-Добавь: бот должен поддерживать напоминания по времени
-Ещё: экспорт заметок в Markdown
-Уточнение: теги вводятся через #hashtag в тексте
-Решение: поиск делаем по подстроке + по тегам
-Ограничение: ответ бота не дольше 2 секунд
-Напомни, какая у нас цель, стек и все ограничения?
-```
-
-Run it three ways and fill the table:
+Verify branch isolation:
 ```bash
-uv run python -m week_02.main --user=cmp --policy=sliding
-uv run python -m week_02.main --user=cmp2 --policy=facts
-# branching: /branch new variant_b, continue the spec differently, compare branches
+cat data/facts_d10c.json
+# → Дмитрий / Казань (main branch)
+
+cat data/facts_d10c__experiment.json
+# → Сергей / Новосибирск (experiment branch)
+
+cat data/branches_d10c.json
+# → {"active": "experiment", "branches": ["main", "experiment"]}
 ```
 
-| Criterion | Sliding | Facts | Branching |
-|-----------|---------|-------|-----------|
-| Answer quality (recalls goal/stack/constraints) | _fill_ | _fill_ | _fill_ |
-| Stability (loses key details?) | _fill_ | _fill_ | _fill_ |
-| Token cost (session total) | _fill_ | _fill_ | _fill_ |
-| UX (convenience) | _fill_ | _fill_ | _fill_ |
+### Strategy comparison
 
-Expected: `sliding` loses early constraints once the window overflows; `facts` keeps
-goal/stack/constraints compactly across the whole spec; `branching` lets you explore
-two spec variants from a shared checkpoint without cross-contamination.
+Deferred to the next video — same-scenario side-by-side comparison of
+`sliding` / `summary` / `facts` (quality, stability, token cost, UX).
 
 ## Progress
 

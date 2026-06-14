@@ -24,6 +24,7 @@ BENCH_TIERS: list[tuple[str, str]] = [
 # Sources: platform.openai.com/docs/pricing, groq.com/pricing, api-docs.deepseek.com
 PRICING: dict[str, tuple[float, float]] = {
     "deepseek-chat": (0.27, 1.10),
+    "deepseek-reasoner": (0.55, 2.19),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.50, 10.00),
     "llama-3.1-8b-instant": (0.05, 0.08),
