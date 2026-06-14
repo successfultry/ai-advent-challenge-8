@@ -9,7 +9,7 @@ week_02/
 ├── agent.py       # Agent — orchestrator: Memory + Policy + LLM
 ├── memory.py      # Memory (Protocol), FileMemory, BranchingMemory
 ├── context.py     # ContextPolicy (Protocol), SlidingWindow, Summary, Facts
-├── facts.py       # LLM-based key-value fact extraction
+├── facts.py       # LLM-based key-value fact extraction (used by FactsPolicy)
 ├── stats.py       # TokenStats (session totals)
 └── summarizer.py  # LLM-based summary generation
 ```
@@ -297,8 +297,10 @@ forked branch, `sliding` on `main`.
 
 `--policy=branching` selects `NonePolicy` (full history, zero processing) so branching
 can be used as a standalone context strategy with no sliding trim and no auxiliary LLM
-calls. It does **not** disable branching under other policies — `/branch` works under any
-policy (e.g. `facts` + branches in demo 3 below).
+calls. `NonePolicy` is the only policy that guarantees **zero message loss** — the entire
+history of the active branch is always sent to the model. It does **not** disable branching
+under other policies — `/branch` works under any policy (e.g. `facts` + branches in demo 3
+below).
 
 ### Demo (for the video)
 
@@ -457,6 +459,27 @@ it with full recall at ~5× the token cost. `branching` solves a different probl
 (reminders + Markdown export) and `variant_b` (voice via Whisper + Google Calendar) diverged
 from a shared checkpoint and each recalled its own spec with zero cross-contamination.
 
+**Reproduce:**
+```bash
+cat data/facts_cmp_facts.json
+cat data/branches_cmp_branch.json
+cat data/history_cmp_slide.json | wc -l
+cat data/history_cmp_facts.json | wc -l
+cat data/history_cmp_branch__variant_a.json | wc -l
+cat data/history_cmp_branch__variant_b.json | wc -l
+```
+
+**Key moments for the video:**
+
+1. **Sliding:** "Context limit reached. Dropped 8 old messages" → on the recall
+   question the model confidently invents "no Docker / apscheduler / asyncio" — none
+   of which were ever said.
+2. **Facts:** every informative message → `Facts updated (N facts)` → on the 10th
+   question the model returns a complete and accurate answer.
+3. **Branching:** `/branch new variant_a` → `/branch new variant_b` → switching back
+   and forth shows full isolation — two different specs coexist from a shared checkpoint.
+
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
@@ -465,6 +488,6 @@ from a shared checkpoint and each recalled its own spec with zero cross-contamin
 | 7 | Persistent Memory (FileMemory, Protocol, argparse) | `--user` | `memory.py` (FileMemory, Protocol), `main.py` (argparse) | done | _link_ |
 | 8 | Token accounting + context overflow demo | auto stats line | `context.py` (`SlidingWindowPolicy`), `stats.py`, `shared/pricing.py`, `cli.py` | done | _link_ |
 | 9 | Context compression (sliding vs summary policies) | `--policy` | `context.py`, `summarizer.py`, `agent.py`, `cli.py`, `main.py` | done | _link_ |
-| 10 | 3 context strategies (sliding / facts / branching) + runtime switching + comparison | `--policy`, `/policy`, `/branch` | `context.py` (`NonePolicy`, `FactsPolicy`), `facts.py`, `memory.py` (`BranchingMemory`), `cli.py` | done | _link_ |
+| 10 | 3 context strategies (sliding / facts / branching) + runtime switching + comparison | `--policy`, `/policy`, `/branch` | `context.py` (`NonePolicy`, `FactsPolicy`), `facts.py`, `memory.py` (`BranchingMemory`), `cli.py`, `shared/config.py` (pricing fix) | done | _link_ |
 
 All days share one codebase; the table maps each day to its commands and the modules that implement them.
