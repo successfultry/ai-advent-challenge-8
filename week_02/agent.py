@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from shared.client import get_client, stream_response
-from week_02.context import CompressionResult, ContextPolicy
+from week_02.context import ContextPolicy, PolicyResult
 from week_02.memory import Memory
 from week_02.stats import TokenStats
 
@@ -25,16 +25,16 @@ class Agent:
         self.stats = stats
         self.system_prompt = system_prompt
         self.last_usage: Any = None
-        self.last_compression: CompressionResult | None = None
+        self.last_result: PolicyResult | None = None
 
     def ask_stream(self, user_input: str) -> Iterator[str]:
         self.last_usage = None
-        self.last_compression = None
+        self.last_result = None
         self.memory.add("user", user_input)
         result = self.policy.compress_if_needed(self.memory)
         if result.changed and result.usage:
             self.stats.add(result.usage, result.usage_model_id or self.model_id)
-        self.last_compression = result
+        self.last_result = result
         messages = self.policy.build_messages(self.memory, self.system_prompt)
 
         chunks: list[str] = []

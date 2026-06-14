@@ -7,15 +7,16 @@ week_02/
 ├── main.py        # entrypoint (argparse --user, --policy)
 ├── cli.py         # terminal UI (rich, chat loop)
 ├── agent.py       # Agent — orchestrator: Memory + Policy + LLM
-├── memory.py      # Memory (Protocol), SessionMemory, FileMemory
-├── context.py     # ContextPolicy (Protocol), SlidingWindow, Summary
+├── memory.py      # Memory (Protocol), FileMemory, BranchingMemory
+├── context.py     # ContextPolicy (Protocol), SlidingWindow, Summary, Facts
+├── facts.py       # LLM-based key-value fact extraction
 ├── stats.py       # TokenStats (session totals)
 └── summarizer.py  # LLM-based summary generation
 ```
 
 `Memory` is a `typing.Protocol` defining the interface (`add`, `history`, `pop_last`, `clear`).
-`SessionMemory` stores history in RAM (lost on exit).
 `FileMemory` stores history in `data/history_{user}.json` (persistent).
+`BranchingMemory` wraps per-branch `FileMemory` instances (Day 10).
 
 Providers and HTTP client live in `shared/` (imported from `shared.client` and `shared.config`).
 
@@ -44,7 +45,7 @@ OPENAI_API_KEY=sk-...
 Agent as a distinct entity. Not just an API call — the `Agent` class encapsulates:
 - message assembly (`system_prompt` + history + new user input),
 - streaming LLM call,
-- memory update (`SessionMemory`) after each turn.
+- in-memory history update after each turn.
 
 `system_prompt` is injected on the fly in `_build_messages()` and never stored in memory,
 so `/clear` resets the conversation history without losing the agent's role.
@@ -103,7 +104,7 @@ FileMemory stores chat history in `data/history_{user}.json`. The dialog survive
 - JSON format: `ensure_ascii=False, indent=2` for readability and non-ASCII support.
 - `/clear` empties chat history (both RAM and file); session token stats are not affected.
 
-`Agent` depends on `Memory` Protocol (duck typing). This allows swapping `SessionMemory` for `FileMemory` without changing `Agent`.
+`Agent` depends on `Memory` Protocol (duck typing). This allows swapping any `Memory` implementation (`FileMemory`, `BranchingMemory`) without changing `Agent`.
 
 ### Demo (for the video)
 
@@ -240,13 +241,149 @@ uv run python -m week_02.main --user=demo2 --policy=summary
 cat data/summary_demo2.json
 ```
 
+## Day 10 — Facts strategy, runtime switching, branching
+
+### Facts context strategy (`--policy=facts`)
+
+`FactsPolicy` maintains a persistent key-value store extracted from conversation history
+by an auxiliary LLM call after each informative user message.
+
+```bash
+uv run python -m week_02.main --user=demo --policy=facts
+```
+
+- Facts are stored in `data/facts_<user>.json` and survive restarts.
+- `build_messages` injects a `Known facts:` system block. If no facts yet, full history
+  is returned (coverage invariant — nothing is dropped before it is captured).
+- **Cost skip-guard:** extraction is skipped for trivially non-informative messages
+  (< 12 chars or stop-list: `ok/ок/да/нет/спасибо/next/go/...`). Informative turns
+  always trigger it. `FactsResult.facts_count` carries no `dropped` field — facts is
+  extraction, not compression.
+
+### Runtime policy switching (`/policy`)
+
+Swap the context strategy mid-session without losing history:
+
+```
+/policy sliding     # switch to sliding window (no auxiliary LLM calls)
+/policy summary     # switch to summarization
+/policy facts       # switch to facts extraction
+```
+
+Memory and token stats are preserved across switches. The new policy starts with
+empty own state and begins accumulating from the next turn.
+
+### Conversation branching (`/branch`)
+
+`BranchingMemory` is always the active memory type. A fresh session starts on the
+`main` branch (backed by the existing `data/history_<user>.json` — fully backward
+compatible). Branch metadata is stored in `data/branches_<user>.json`.
+
+```
+/branch new <name>      # fork current branch into a new one, switch to it
+/branch switch <name>   # switch to an existing branch
+/branch list            # list all branches with active marker
+```
+
+Branches are per-user file-isolated (`data/history_<user>__<name>.json`). Context
+policies stay branch-agnostic — they only call `memory.history()` and are unaware of
+the branch structure. Facts/summary state is also per-branch (`facts_<user>__<branch>.json`);
+a forked branch starts with empty derived state and recomputes it from the copied history.
+
+Branching (memory axis) and policy (context axis) are orthogonal: a branch always runs
+under some policy (sliding by default). All combinations are valid — e.g. `facts` on a
+forked branch, `sliding` on `main`.
+
+### Demo (for the video)
+
+**1. Facts extraction + cost skip-guard:**
+```bash
+uv run python -m week_02.main --user=demo --policy=facts
+```
+```
+Меня зовут Виктор, мне 30 лет, я программист из Москвы
+# → dim line: Facts updated (N facts)
+ок
+# → NO "Facts updated" (skip-guard: < 12 chars)
+да
+# → NO "Facts updated" (skip-guard: stop-list)
+Я работаю на Python и Go, предпочитаю Linux
+# → Facts updated (count grows)
+```
+```bash
+cat data/facts_demo.json   # key-value facts persisted
+```
+
+**2. Runtime policy switch (history preserved):**
+```
+Меня зовут Алексей, я дизайнер из Питера
+/policy sliding     # → Policy switched to sliding
+Что ты знаешь обо мне?     # still in window
+/policy facts       # → Policy switched to facts (reloads facts from disk)
+Что ты знаешь обо мне?     # → recalls Алексей, дизайнер, Питер
+```
+
+**3. Branching with branch-scoped facts:**
+```
+Меня зовут Виктор, я из Москвы
+/branch list                       # → main ← active
+/branch new experiment             # → Created and switched to branch experiment
+Забудь всё. Теперь меня зовут Алексей и я из Питера
+/branch switch main
+Как меня зовут и откуда я?         # → Виктор, Москва (main facts)
+/branch switch experiment
+Как меня зовут и откуда я?         # → Алексей, Питер (experiment facts)
+```
+```bash
+cat data/facts_demo.json              # Виктор / Москва
+cat data/facts_demo__experiment.json  # Алексей / Питер
+```
+
+### Strategy comparison (the task deliverable)
+
+Run the **same scenario** — collecting a short spec (ТЗ), ~10-15 messages — on each
+strategy, then compare. Suggested copy-paste scenario:
+
+```
+Давай соберём ТЗ на телеграм-бота для заметок
+Цель: пользователь шлёт текст, бот сохраняет и умеет искать по тегам
+Ограничение: только Python, хостинг — бесплатный
+Предпочтение: минимум зависимостей, без тяжёлых фреймворков
+Договорились: хранилище — SQLite
+Добавь: бот должен поддерживать напоминания по времени
+Ещё: экспорт заметок в Markdown
+Уточнение: теги вводятся через #hashtag в тексте
+Решение: поиск делаем по подстроке + по тегам
+Ограничение: ответ бота не дольше 2 секунд
+Напомни, какая у нас цель, стек и все ограничения?
+```
+
+Run it three ways and fill the table:
+```bash
+uv run python -m week_02.main --user=cmp --policy=sliding
+uv run python -m week_02.main --user=cmp2 --policy=facts
+# branching: /branch new variant_b, continue the spec differently, compare branches
+```
+
+| Criterion | Sliding | Facts | Branching |
+|-----------|---------|-------|-----------|
+| Answer quality (recalls goal/stack/constraints) | _fill_ | _fill_ | _fill_ |
+| Stability (loses key details?) | _fill_ | _fill_ | _fill_ |
+| Token cost (session total) | _fill_ | _fill_ | _fill_ |
+| UX (convenience) | _fill_ | _fill_ | _fill_ |
+
+Expected: `sliding` loses early constraints once the window overflows; `facts` keeps
+goal/stack/constraints compactly across the whole spec; `branching` lets you explore
+two spec variants from a shared checkpoint without cross-contamination.
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
 |-----|------|----------|------|--------|-------|
-| 6 | First Agent (streaming CLI, SessionMemory) | `/clear`, `/switch`, `/help` | `agent.py`, `memory.py`, `cli.py` | done | _link_ |
+| 6 | First Agent (streaming CLI, in-memory history) | `/clear`, `/switch`, `/help` | `agent.py`, `memory.py`, `cli.py` | done | _link_ |
 | 7 | Persistent Memory (FileMemory, Protocol, argparse) | `--user` | `memory.py` (FileMemory, Protocol), `main.py` (argparse) | done | _link_ |
 | 8 | Token accounting + context overflow demo | auto stats line | `context.py` (`SlidingWindowPolicy`), `stats.py`, `shared/pricing.py`, `cli.py` | done | _link_ |
 | 9 | Context compression (sliding vs summary policies) | `--policy` | `context.py`, `summarizer.py`, `agent.py`, `cli.py`, `main.py` | done | _link_ |
+| 10 | Facts strategy + runtime policy/branch switching | `--policy=facts`, `/policy`, `/branch` | `context.py` (`FactsPolicy`), `facts.py`, `memory.py` (`BranchingMemory`), `cli.py` | done | _link_ |
 
 All days share one codebase; the table maps each day to its commands and the modules that implement them.

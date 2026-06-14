@@ -12,9 +12,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--policy",
-        choices=["sliding", "summary"],
+        choices=["sliding", "summary", "facts"],
         default="sliding",
-        help="context policy: sliding window or summary compression",
+        help="context policy: sliding window, summary compression, or facts extraction",
     )
     args = parser.parse_args()
     run(user=args.user, policy_name=args.policy)
