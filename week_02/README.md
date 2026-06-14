@@ -265,9 +265,10 @@ uv run python -m week_02.main --user=demo --policy=facts
 Swap the context strategy mid-session without losing history:
 
 ```
-/policy sliding     # switch to sliding window (no auxiliary LLM calls)
-/policy summary     # switch to summarization
-/policy facts       # switch to facts extraction
+/policy sliding     # sliding window (no auxiliary LLM calls)
+/policy summary     # summarization
+/policy facts       # facts extraction
+/policy branching   # full history, no processing (use with /branch)
 ```
 
 Memory and token stats are preserved across switches. The new policy starts with
@@ -293,6 +294,11 @@ a forked branch starts with empty derived state and recomputes it from the copie
 Branching (memory axis) and policy (context axis) are orthogonal: a branch always runs
 under some policy (sliding by default). All combinations are valid — e.g. `facts` on a
 forked branch, `sliding` on `main`.
+
+`--policy=branching` selects `NonePolicy` (full history, zero processing) so branching
+can be used as a standalone context strategy with no sliding trim and no auxiliary LLM
+calls. It does **not** disable branching under other policies — `/branch` works under any
+policy (e.g. `facts` + branches in demo 3 below).
 
 ### Demo (for the video)
 
@@ -371,10 +377,81 @@ cat data/branches_d10c.json
 # → {"active": "experiment", "branches": ["main", "experiment"]}
 ```
 
-### Strategy comparison
+### Strategy comparison (the task deliverable)
 
-Deferred to the next video — same-scenario side-by-side comparison of
-`sliding` / `summary` / `facts` (quality, stability, token cost, UX).
+Same scenario — collecting a short spec (ТЗ) in 10 messages — run on each strategy.
+Copy-paste the messages below into each session, then check message 10 (the recall question).
+
+**Scenario messages (same for all three):**
+```
+1: Давай соберём ТЗ на телеграм-бота для заметок
+2: Цель: пользователь шлёт текст, бот сохраняет и умеет искать по тегам
+3: Ограничение: только Python, хостинг — бесплатный tier
+4: Предпочтение: минимум зависимостей, без тяжёлых фреймворков
+5: Договорились: хранилище — SQLite
+6: Добавь: бот должен поддерживать напоминания по времени
+7: Ещё: экспорт заметок в Markdown
+8: Уточнение: теги вводятся через #hashtag в тексте
+9: Решение: поиск делаем по подстроке + по тегам
+10: Напомни всё: какая цель, стек, ограничения и все решения?
+```
+
+**Run 1 — Sliding Window:**
+```bash
+uv run python -m week_02.main --user=cmp_slide --policy=sliding
+```
+Enter messages 1-10. By message 10 the sliding window (`max_tokens=500`) has dropped
+early messages → model partially forgets goal/constraints.
+
+**Run 2 — Sticky Facts:**
+```bash
+uv run python -m week_02.main --user=cmp_facts --policy=facts
+```
+Same 10 messages. Each informative turn shows `Facts updated`. On message 10 the model
+answers from the facts block → full recall expected.
+
+**Run 3 — Branching:**
+```bash
+uv run python -m week_02.main --user=cmp_branch --policy=branching
+```
+Messages 1-5 (base spec), then fork:
+```
+/branch new variant_a
+```
+Messages 6-7 as above (напоминания + экспорт). Then:
+```
+/branch switch main
+/branch new variant_b
+```
+Alternative messages 6-7:
+```
+Добавь: бот должен поддерживать голосовые заметки через Whisper
+Ещё: интеграция с Google Calendar
+```
+Then verify branch isolation:
+```
+/branch switch variant_a
+Напомни всё ТЗ
+# → цель, SQLite, теги, напоминания, экспорт
+
+/branch switch variant_b
+Напомни всё ТЗ
+# → цель, SQLite, теги, голосовые заметки, Google Calendar
+```
+
+**Results table** (fill after running):
+
+| Criterion | Sliding | Facts | Branching |
+|-----------|---------|-------|-----------|
+| Recalls goal/stack/constraints? | _fill_ | _fill_ | _fill_ |
+| Loses key details? | _fill_ | _fill_ | _fill_ |
+| Extra LLM calls per turn | 0 | 1 | 0 |
+| Scales to long conversations? | Window is fixed | Facts grow but stay compact | Branches grow unbounded |
+| UX | Transparent but lossy | Automatic | Manual branch management |
+
+**Expected outcome:** `sliding` loses early constraints after overflow; `facts` retains
+everything via the facts block; `branching` retains everything via full history in short
+forked branches — two spec variants coexist without cross-contamination.
 
 ## Progress
 
@@ -384,6 +461,6 @@ Deferred to the next video — same-scenario side-by-side comparison of
 | 7 | Persistent Memory (FileMemory, Protocol, argparse) | `--user` | `memory.py` (FileMemory, Protocol), `main.py` (argparse) | done | _link_ |
 | 8 | Token accounting + context overflow demo | auto stats line | `context.py` (`SlidingWindowPolicy`), `stats.py`, `shared/pricing.py`, `cli.py` | done | _link_ |
 | 9 | Context compression (sliding vs summary policies) | `--policy` | `context.py`, `summarizer.py`, `agent.py`, `cli.py`, `main.py` | done | _link_ |
-| 10 | Facts strategy + runtime policy/branch switching | `--policy=facts`, `/policy`, `/branch` | `context.py` (`FactsPolicy`), `facts.py`, `memory.py` (`BranchingMemory`), `cli.py` | done | _link_ |
+| 10 | 3 context strategies (sliding / facts / branching) + runtime switching + comparison | `--policy`, `/policy`, `/branch` | `context.py` (`NonePolicy`, `FactsPolicy`), `facts.py`, `memory.py` (`BranchingMemory`), `cli.py` | done | _link_ |
 
 All days share one codebase; the table maps each day to its commands and the modules that implement them.

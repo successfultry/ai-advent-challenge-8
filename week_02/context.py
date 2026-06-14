@@ -38,6 +38,21 @@ class ContextPolicy(Protocol):
     def reset_state(self) -> None: ...
 
 
+class NonePolicy:
+    def compress_if_needed(self, memory: Memory) -> PolicyResult:
+        return PolicyResult(changed=False)
+
+    def build_messages(self, memory: Memory, system_prompt: str | None) -> list[Msg]:
+        msgs: list[Msg] = []
+        if system_prompt:
+            msgs.append({"role": "system", "content": system_prompt})
+        msgs.extend(memory.history())
+        return msgs
+
+    def reset_state(self) -> None:
+        pass
+
+
 class SlidingWindowPolicy:
     def __init__(self, max_tokens: int = 500) -> None:
         self.max_tokens = max_tokens

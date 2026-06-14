@@ -19,6 +19,7 @@ from week_02.context import (
     ContextPolicy,
     FactsPolicy,
     FactsResult,
+    NonePolicy,
     SlidingWindowPolicy,
     SummaryPolicy,
 )
@@ -37,7 +38,7 @@ SYSTEM_PROMPT = (
 COMMANDS = {
     "/clear": "clear chat history and policy state",
     "/switch": "switch model (history preserved)",
-    "/policy <sliding|facts|summary>": "swap context strategy at runtime",
+    "/policy <sliding|facts|summary|branching>": "swap context strategy at runtime",
     "/branch new <name>": "fork current branch into a new one",
     "/branch switch <name>": "switch to an existing branch",
     "/branch list": "list all branches",
@@ -69,6 +70,8 @@ def make_policy(
     user: str,
     branch: str,
 ) -> ContextPolicy:
+    if name == "branching":
+        return NonePolicy()
     if name == "sliding":
         return SlidingWindowPolicy()
     if name == "summary":
@@ -113,9 +116,10 @@ def _chat_loop(agent: Agent, policy_name: str, user: str) -> tuple[bool, str]:
 
         if user_input.startswith("/policy "):
             new_name = user_input.split(None, 1)[1].strip()
-            if new_name not in ("sliding", "facts", "summary"):
+            if new_name not in ("sliding", "facts", "summary", "branching"):
                 console.print(
-                    f"[red]Unknown policy:[/] {new_name!r}. Use: sliding, facts, summary\n"
+                    f"[red]Unknown policy:[/] {new_name!r}."
+                    " Use: sliding, facts, summary, branching\n"
                 )
                 continue
             branch = agent.memory.active if isinstance(agent.memory, BranchingMemory) else "main"
