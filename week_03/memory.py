@@ -177,9 +177,7 @@ class ShortTermStore:
         msgs = raw.get("messages", [])
         if not isinstance(msgs, list):
             msgs = []
-        self._messages = [
-            m for m in msgs if isinstance(m, dict) and "role" in m and "content" in m
-        ]
+        self._messages = [m for m in msgs if isinstance(m, dict) and "role" in m and "content" in m]
         # drop dangling user turn from an interrupted session
         if self._messages and self._messages[-1].get("role") == "user":
             self._messages.pop()

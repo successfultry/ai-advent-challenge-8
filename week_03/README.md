@@ -94,7 +94,10 @@ current task back to an empty PLANNING state.
 | `/task new <name>` | create task in PLANNING + set active pointer |
 | `/task show` | print current working memory |
 | `/task status <state>` | advance task state (validated) |
+| `/task plan <text>` | set the task plan (PLANNING) |
+| `/task decision <text>` | append an accepted decision |
 | `/task note <text>` | append note to working memory |
+| `/task validate <text>` | set validation result (VALIDATION) |
 | `/task reset` | wipe task content, return to PLANNING |
 | `/clear` | clear short-term only (profile + task untouched) |
 | `/switch` | switch provider/model (all memory preserved) |
@@ -130,20 +133,21 @@ How should I structure the request handler?
 ```
 Answer is in Python, references `http.server`, respects task context.
 
-**Step 4 — advance state and add a note; try an invalid transition:**
+**Step 4 — fill working fields (plan / decision / note / validation):**
 ```
-/task status DONE
-```
-→ `Invalid: PLANNING → DONE. Allowed from PLANNING: EXECUTION`
-```
-/task status EXECUTION
+/task plan "Build minimal HTTP server with stdlib only"
+/task decision "Use BaseHTTPRequestHandler instead of raw sockets"
 /task note "use http.server.BaseHTTPRequestHandler"
+/task status EXECUTION
+/task status VALIDATION
+/task validate "Basic GET flow works, proceed to next iteration"
 ```
-Check `data/working/alice_http-server.json` — state and note are saved.
+Check `data/working/alice_http-server.json` — all these fields are saved in working memory.
+They are injected into the system prompt on each request via `prompt_builder`.
 
-**Step 5 — state rollbacks (found a bug / plan incomplete):**
+**Step 5 — try an invalid transition + state rollbacks:**
 ```
-/task status VALIDATION      # forward to validation
+/task status PLANNING        # → Invalid from VALIDATION (allowed: EXECUTION or DONE)
 /task status EXECUTION       # bug found → roll back (allowed)
 /task status PLANNING        # plan incomplete → roll back further (allowed)
 /task status DONE            # → Invalid: PLANNING → DONE. Allowed from PLANNING: EXECUTION

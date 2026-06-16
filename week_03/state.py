@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class TaskState(str, Enum):
+class TaskState(StrEnum):
     PLANNING = "PLANNING"
     EXECUTION = "EXECUTION"
     VALIDATION = "VALIDATION"

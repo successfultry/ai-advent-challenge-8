@@ -9,7 +9,6 @@ from rich.table import Table
 from shared.cli_helpers import pick_provider
 from shared.pricing import cost
 from week_03.agent import Agent
-from week_03.stats import TokenStats
 from week_03.memory import (
     ProfileStore,
     ShortTermStore,
@@ -20,7 +19,8 @@ from week_03.memory import (
     slug,
 )
 from week_03.prompt_builder import build_system
-from week_03.state import TransitionError, TransitionOk, validate_transition
+from week_03.state import TransitionError, validate_transition
+from week_03.stats import TokenStats
 
 console = Console()
 
@@ -38,7 +38,10 @@ COMMANDS = {
     "/task new <name>": "create task in PLANNING",
     "/task show": "print current working memory",
     "/task status <state>": "move task state (forward, or roll back EXEC→PLAN / VALID→EXEC)",
+    "/task plan <text>": "set the task plan (PLANNING)",
+    "/task decision <text>": "append an accepted decision",
     "/task note <text>": "append note to working memory",
+    "/task validate <text>": "set validation result (VALIDATION)",
     "/task reset": "wipe task content, return to PLANNING",
     "/clear": "clear short-term history only (profile + task untouched)",
     "/switch": "switch provider/model (all memory preserved)",
@@ -109,9 +112,7 @@ def run(user: str = "default", chat: str = "default", *, fresh: bool = False) ->
                 f"[dim]Resumed task: [cyan]{active_task.name}[/] ({active_task.state})[/]\n"
             )
         else:
-            console.print(
-                f"[yellow]Pointer references missing task {task_id!r} — cleared.[/]\n"
-            )
+            console.print(f"[yellow]Pointer references missing task {task_id!r} — cleared.[/]\n")
             set_active_task_id(user, None)
 
     def _build_system() -> str:
@@ -151,7 +152,7 @@ def run(user: str = "default", chat: str = "default", *, fresh: bool = False) ->
             continue
 
         if user_input.startswith("/profile set "):
-            rest = user_input[len("/profile set "):].strip()
+            rest = user_input[len("/profile set ") :].strip()
             parts = rest.split(None, 1)
             if len(parts) < 2:
                 console.print("[red]Usage: /profile set <key> <value>[/]\n")
@@ -162,7 +163,7 @@ def run(user: str = "default", chat: str = "default", *, fresh: bool = False) ->
             continue
 
         if user_input.startswith("/task new "):
-            name = _unquote(user_input[len("/task new "):])
+            name = _unquote(user_input[len("/task new ") :])
             if not name:
                 console.print("[red]Usage: /task new <name>[/]\n")
                 continue
@@ -189,7 +190,7 @@ def run(user: str = "default", chat: str = "default", *, fresh: bool = False) ->
             if active_task is None or working_store is None:
                 console.print("[yellow]No active task. Use /task new <name> first.[/]\n")
                 continue
-            target = user_input[len("/task status "):].strip()
+            target = user_input[len("/task status ") :].strip()
             result = validate_transition(active_task.state, target)
             if isinstance(result, TransitionError):
                 console.print(f"[red]{result.message}[/]\n")
@@ -199,11 +200,50 @@ def run(user: str = "default", chat: str = "default", *, fresh: bool = False) ->
                 console.print(f"[dim]Task state → [yellow]{active_task.state}[/][/]\n")
             continue
 
+        if user_input.startswith("/task plan "):
+            if active_task is None or working_store is None:
+                console.print("[yellow]No active task. Use /task new <name> first.[/]\n")
+                continue
+            plan = _unquote(user_input[len("/task plan ") :])
+            if not plan:
+                console.print("[red]Usage: /task plan <text>[/]\n")
+                continue
+            active_task.plan = plan
+            working_store.save(active_task)
+            console.print("[dim]Plan set in working memory.[/]\n")
+            continue
+
+        if user_input.startswith("/task decision "):
+            if active_task is None or working_store is None:
+                console.print("[yellow]No active task. Use /task new <name> first.[/]\n")
+                continue
+            decision = _unquote(user_input[len("/task decision ") :])
+            if not decision:
+                console.print("[red]Usage: /task decision <text>[/]\n")
+                continue
+            active_task.decisions.append(decision)
+            working_store.save(active_task)
+            console.print("[dim]Decision added to working memory.[/]\n")
+            continue
+
+        if user_input.startswith("/task validate "):
+            if active_task is None or working_store is None:
+                console.print("[yellow]No active task. Use /task new <name> first.[/]\n")
+                continue
+            validation = _unquote(user_input[len("/task validate ") :])
+            if not validation:
+                console.print("[red]Usage: /task validate <text>[/]\n")
+                continue
+            active_task.validation = validation
+            working_store.save(active_task)
+            console.print("[dim]Validation result set in working memory.[/]\n")
+            continue
+
         if user_input.startswith("/task note "):
             if active_task is None or working_store is None:
                 console.print("[yellow]No active task. Use /task new <name> first.[/]\n")
                 continue
-            note = _unquote(user_input[len("/task note "):])
+            note = _unquote(user_input[len("/task note ") :])
             if not note:
                 console.print("[red]Usage: /task note <text>[/]\n")
                 continue
@@ -243,7 +283,8 @@ def run(user: str = "default", chat: str = "default", *, fresh: bool = False) ->
             u = agent.last_usage
             turn = cost(agent.model_id, u.prompt_tokens, u.completion_tokens)
             console.print(
-                f"[dim]Tokens: {u.prompt_tokens}+{u.completion_tokens}={u.prompt_tokens + u.completion_tokens}"
-                f" | Turn: ${turn:.6f} | Session: {stats.total} tok (${stats.cost:.6f})[/]"
+                f"[dim]Tokens: {u.prompt_tokens} prompt + {u.completion_tokens} completion "
+                f"= {u.prompt_tokens + u.completion_tokens}"
+                f" | Cost: ${turn:.6f} | Session: {stats.total} tokens (${stats.cost:.6f})[/]"
             )
         console.print()
