@@ -17,10 +17,17 @@ ONBOARD_QUESTIONS: list[tuple[str, str]] = [
 
 _EXTRACT_SYSTEM = (
     "You extract STABLE, DURABLE user coding preferences from a single user message.\n"
+    "You will receive the user's current profile and their latest message.\n"
     "Return ONLY valid JSON: {\"updates\": {\"key\": \"value\"}} or {\"updates\": {}}.\n"
-    "Keys are one of: language, stack, style, format, constraints, forbidden.\n"
-    "Only include keys that are explicitly stated as permanent preferences.\n"
-    "Never include one-off task details, questions, or greetings."
+    "Keys are one of: language, stack, style, format, constraints, forbidden.\n\n"
+    "Rules:\n"
+    "- Only include keys that are explicitly stated as permanent preferences.\n"
+    "- Never include one-off task details, questions, or greetings.\n"
+    "- If a value already matches the current profile, do not include it.\n"
+    "- If the user changes language, also reset stack to empty string so stale "
+    "stack info does not conflict with the new language.\n"
+    "- If the user sets a forbidden rule, use the exact wording they used.\n"
+    "- Prefer concise values (e.g. 'Go' not 'the Go programming language')."
 )
 
 
@@ -45,7 +52,13 @@ def extract_preferences(
     try:
         messages = [
             {"role": "system", "content": _EXTRACT_SYSTEM},
-            {"role": "user", "content": user_msg},
+            {
+                "role": "user",
+                "content": (
+                    f"Current profile:\n{json.dumps(current, ensure_ascii=False)}\n\n"
+                    f"User message:\n{user_msg}"
+                ),
+            },
         ]
         resp = client.chat.completions.create(
             model=model_id,

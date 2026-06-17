@@ -313,6 +313,10 @@ def run(
         if not user_input:
             continue
 
+        if user_input.startswith("/"):
+            console.print(f"[red]Unknown command:[/] {user_input}  Type /help.\n")
+            continue
+
         console.print(f"\n[bold green]{agent.provider_name}[/]:")
         try:
             for token in agent.ask_stream(user_input):
