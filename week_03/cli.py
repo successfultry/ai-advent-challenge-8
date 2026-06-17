@@ -9,6 +9,7 @@ from rich.table import Table
 from shared.cli_helpers import pick_provider
 from shared.pricing import cost
 from week_03.agent import Agent
+from week_03.learn import extract_preferences, run_onboarding
 from week_03.memory import (
     ProfileStore,
     ShortTermStore,
@@ -35,6 +36,9 @@ def _unquote(s: str) -> str:
 COMMANDS = {
     "/profile show": "print long-term profile",
     "/profile set <k> <v>": "upsert key in long-term profile",
+    "/profile forget <k>": "remove key from profile",
+    "/profile learn on|off": "toggle auto-capture of durable prefs",
+    "/profile onboard": "rerun onboarding questions",
     "/task new <name>": "create task in PLANNING",
     "/task show": "print current working memory",
     "/task status <state>": "move task state (forward, or roll back EXEC→PLAN / VALID→EXEC)",
@@ -88,12 +92,26 @@ def _print_task(ctx: TaskContext) -> None:
     console.print()
 
 
-def run(user: str = "default", chat: str = "default", *, fresh: bool = False) -> None:
+def run(
+    user: str = "default",
+    chat: str = "default",
+    *,
+    fresh: bool = False,
+    learn: bool = False,
+    no_onboard: bool = False,
+) -> None:
     console.print(Panel("[bold]Week 03 · Stateful Agent[/]", expand=False))
     mode = "[yellow]fresh session[/]" if fresh else "[dim]resuming history[/]"
-    console.print(f"[dim]user=[cyan]{user}[/]  chat=[cyan]{chat}[/]  {mode}[/]\n")
+    learn_flag = "[green]learn=on[/]" if learn else "[dim]learn=off[/]"
+    onboard_flag = "[dim]onboard=skipped[/]" if no_onboard else "[yellow]onboard=first-run[/]"
+    console.print(
+        f"[dim]user=[cyan]{user}[/]  chat=[cyan]{chat}[/]  {mode}  "
+        f"{learn_flag}  {onboard_flag}[/]\n"
+    )
 
     profile_store = ProfileStore(user)
+    if not no_onboard:
+        run_onboarding(profile_store)
     short_term = ShortTermStore(user, chat, fresh=fresh)
     stats = TokenStats()
 
@@ -160,6 +178,33 @@ def run(user: str = "default", chat: str = "default", *, fresh: bool = False) ->
             key, value = parts[0], _unquote(parts[1])
             profile_store.upsert(key, value)
             console.print(f"[dim]Profile: [cyan]{key}[/] = {value}[/]\n")
+            continue
+
+        if user_input.startswith("/profile forget "):
+            key = user_input[len("/profile forget ") :].strip()
+            if not key:
+                console.print("[red]Usage: /profile forget <key>[/]\n")
+                continue
+            p = profile_store.load()
+            if key in p.data:
+                del p.data[key]
+                profile_store.save(p)
+                console.print(f"[dim]Profile: removed [cyan]{key}[/][/]")
+            else:
+                console.print(f"[yellow]Key {key!r} not in profile.[/]\n")
+            continue
+
+        if user_input == "/profile learn on":
+            learn = True
+            console.print("[dim]Learn mode: on (auto-capture enabled)[/]\n")
+            continue
+        if user_input == "/profile learn off":
+            learn = False
+            console.print("[dim]Learn mode: off[/]\n")
+            continue
+
+        if user_input == "/profile onboard":
+            run_onboarding(profile_store)
             continue
 
         if user_input.startswith("/task new "):
@@ -288,3 +333,11 @@ def run(user: str = "default", chat: str = "default", *, fresh: bool = False) ->
                 f" | Cost: ${turn:.6f} | Session: {stats.total} tokens (${stats.cost:.6f})[/]"
             )
         console.print()
+
+        if learn and user_input and not user_input.startswith("/"):
+            updates = extract_preferences(
+                user_input, profile_store.load().data, agent.client, agent.model_id
+            )
+            for k, v in updates.items():
+                profile_store.upsert(k, v)
+                console.print(f"[dim]Learned: {k}={v}[/]")

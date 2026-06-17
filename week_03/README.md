@@ -244,12 +244,199 @@ no FastAPI unless asked
 
 ---
 
+## Day 12 — Personalization
+
+Personalization layer built on top of the Day 11 long-term memory.
+Three ways to populate a user profile: manual edits, first-run onboarding (no LLM, default on),
+and opt-in auto-capture via LLM (requires `--learn`).
+
+### How it works
+
+- `prompt_builder.build_system` now renders four known categories as **dedicated sections**:
+  `## Style`, `## Format`, `## Constraints`, `## Forbidden (never do)`.
+  Any other keys appear under `## User Profile`. All are HARD CONSTRAINTS for the model.
+- **First-run onboarding**: if `data/long_term/<user>.md` is empty at startup, the CLI
+  asks six fixed questions (language, stack, style, format, constraints, forbidden).
+  Answers are written immediately via `ProfileStore.upsert`. Skipped questions leave those keys unset.
+  Skippable via `--no-onboard` (needed for Day 11 demo reproducibility).
+- **Learn mode** (`--learn` or `/profile learn on`): after printing each assistant answer (not on
+  `/` commands), one best-effort LLM call with `response_format=json_object` extracts durable
+  preferences from the user's message. All extracted keys are saved (e.g. one turn can yield
+  `language=Go` and `forbidden=never in Python`). Any LLM/parse failure silently returns `{}` —
+  the main chat is never blocked.
+- `ProfileStore` API unchanged (`load/save/upsert`); Markdown backing unchanged.
+
+### New CLI flags
+
+```bash
+# enable auto-capture of durable preferences from chat
+uv run python -m week_03.main --user alice --learn
+
+# skip first-run onboarding (Day 11 parity)
+uv run python -m week_03.main --user alice --no-onboard
+```
+
+### New in-chat commands (Day 12)
+
+| Command | Action |
+|---------|--------|
+| `/profile forget <k>` | remove key from long-term profile |
+| `/profile learn on\|off` | toggle auto-capture at runtime |
+| `/profile onboard` | rerun onboarding questionnaire manually |
+
+---
+
+### Demo Day 12
+
+> **Precondition:** both `alice` and `bob` must have empty (or absent) long-term profiles.
+> Delete `data/long_term/alice.md` and `data/long_term/bob.md` if they exist, or use fresh `--user` ids.
+> Day 11 demo used `alice` with a manually-set profile — this demo creates both users from scratch via onboarding.
+
+**Step 1 — Onboard alice (Python developer):**
+```bash
+uv run python -m week_03.main --user alice --chat d12
+```
+Banner shows `onboard=first-run`. Answer:
+```
+Primary language (e.g. Python, Go, Rust): Python
+Preferred stack / frameworks: Python 3.12, uv, ruff
+Answer style (terse / detailed / with examples): terse, no narrating comments
+Format preference (code blocks, comments, etc.): [Enter — skip]
+Hard constraints (stdlib only, no external libs, etc.): stdlib only unless asked
+Forbidden (never do this): no FastAPI unless asked
+```
+`Onboarding done. Profile saved.`
+Open `data/long_term/alice.md` — human-readable Markdown with explicit sections.
+```
+exit
+```
+
+**Step 2 — Onboard bob (Go developer):**
+```bash
+uv run python -m week_03.main --user bob --chat d12
+```
+Banner shows `onboard=first-run`. Answer:
+```
+Primary language (e.g. Python, Go, Rust): Go
+Preferred stack / frameworks: Fiber
+Answer style (terse / detailed / with examples): terse
+Format preference (code blocks, comments, etc.): [Enter — skip]
+Hard constraints (stdlib only, no external libs, etc.): [Enter — skip]
+Forbidden (never do this): no python
+```
+`Onboarding done. Profile saved.`
+Open `data/long_term/bob.md`.
+```
+exit
+```
+
+**Step 3 — Same question, different profiles → different answers:**
+```bash
+uv run python -m week_03.main --user alice --chat d12 --no-onboard
+```
+```
+Write a simple hello world web server.
+```
+→ Gets a **Python + http.server** answer.
+```
+exit
+```
+```bash
+uv run python -m week_03.main --user bob --chat d12 --no-onboard
+```
+```
+Write a simple hello world web server.
+```
+→ Gets a **Go + Fiber** answer. Same question, different profile → different answer.
+
+**Step 4 — Negative case: learn mode OFF (Day 11 parity):**
+Still as bob (no `--learn`):
+```
+From now on use Rust.
+```
+→ Agent answers but `data/long_term/bob.md` **is unchanged**. No extra LLM calls.
+This is the default behavior; it reproduces Day 11 exactly.
+
+**Step 5 — Enable learn mode and capture multiple preferences:**
+```
+/profile learn on
+```
+`Learn mode: on (auto-capture enabled)`
+```
+Always answer in Go, never in Python.
+```
+→ Agent answers normally. After the answer you see **one or more** learned preferences, e.g.:
+```
+Learned: language=Go
+Learned: forbidden=never in Python
+```
+Both keys are saved in a single turn. Check `data/long_term/bob.md` — both sections are updated.
+Next question uses the new values automatically (system prompt is rebuilt every turn).
+
+**Step 6 — `/profile forget` removes a key:**
+```
+/profile forget forbidden
+```
+Open `data/long_term/bob.md` — `forbidden` section is gone.
+```
+Write a hello world web server.
+```
+→ Answer no longer has the `no python` constraint.
+
+**Step 7 — `/profile onboard` reruns the questionnaire:**
+```
+/profile onboard
+```
+→ Asks the same fixed questions. Empty answers leave existing keys unchanged.
+Only answered keys are overwritten.
+
+### File snapshot after Demo Day 12
+
+**`data/long_term/alice.md`**:
+```markdown
+# Profile: alice
+
+## language
+Python
+
+## stack
+Python 3.12, uv, ruff
+
+## style
+terse, no narrating comments
+
+## constraints
+stdlib only unless asked
+
+## forbidden
+no FastAPI unless asked
+```
+
+**`data/long_term/bob.md`** (after steps 2–5, before step 6):
+```markdown
+# Profile: bob
+
+## language
+Go
+
+## stack
+Fiber
+
+## style
+terse
+
+## forbidden
+never in Python
+```
+
+---
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
 |-----|------|----------|------|--------|-------|
 | 11 | Stateful agent with 3-layer memory (short-term / working / long-term), active-task pointer, state machine | `/profile set/show`, `/task new/show/status/note/reset`, `/clear`, `--fresh` | `memory.py`, `state.py`, `prompt_builder.py`, `agent.py`, `stats.py`, `cli.py`, `main.py` | done | _link_ |
-| 12 | — | — | — | — | — |
+| 12 | Personalization: structured profile, onboarding, opt-in LLM auto-capture, multi-user demo | `/profile forget/learn/onboard`, `--learn`, `--no-onboard` | `learn.py`, `prompt_builder.py`, `cli.py`, `main.py` | done | _link_ |
 | 13 | — | — | — | — | — |
 | 14 | — | — | — | — | — |
 | 15 | — | — | — | — | — |

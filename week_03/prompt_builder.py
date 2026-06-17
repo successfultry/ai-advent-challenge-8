@@ -16,11 +16,19 @@ def build_system(profile: Profile, task: TaskContext | None) -> str:
 
     data = dict(profile.data)
     forbidden = data.pop("forbidden", None)
+    style = data.pop("style", None)
+    fmt = data.pop("format", None)
+    constraints = data.pop("constraints", None)
 
+    if style:
+        parts.append(f"## Style\n  {style}")
+    if fmt:
+        parts.append(f"## Format\n  {fmt}")
+    if constraints:
+        parts.append(f"## Constraints\n  {constraints}")
     if data:
         lines = "\n".join(f"  {k}: {v}" for k, v in data.items())
-        parts.append(f"## User Profile (hard constraints)\n{lines}")
-
+        parts.append(f"## User Profile\n{lines}")
     if forbidden:
         parts.append(f"## Forbidden (never do)\n  {forbidden}")
 

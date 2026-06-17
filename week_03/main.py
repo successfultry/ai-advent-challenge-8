@@ -13,5 +13,23 @@ if __name__ == "__main__":
         default=False,
         help="start with empty short-term history (profile + task still loaded from disk)",
     )
+    parser.add_argument(
+        "--learn",
+        action="store_true",
+        default=False,
+        help="enable auto-capture of durable preferences after answers",
+    )
+    parser.add_argument(
+        "--no-onboard",
+        action="store_true",
+        default=False,
+        help="skip first-run onboarding for new/empty profiles",
+    )
     args = parser.parse_args()
-    run(user=args.user, chat=args.chat, fresh=args.fresh)
+    run(
+        user=args.user,
+        chat=args.chat,
+        fresh=args.fresh,
+        learn=args.learn,
+        no_onboard=args.no_onboard,
+    )
