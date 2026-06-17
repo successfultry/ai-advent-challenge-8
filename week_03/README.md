@@ -288,8 +288,13 @@ uv run python -m week_03.main --user alice --no-onboard
 
 ### Demo Day 12
 
-> **Precondition:** both `alice` and `bob` must have empty (or absent) long-term profiles.
-> Delete `data/long_term/alice.md` and `data/long_term/bob.md` if they exist, or use fresh `--user` ids.
+> **Precondition:** clean up old data files before running this demo:
+> ```bash
+> del data\long_term\alice.md
+> del data\long_term\bob.md
+> del data\short_term\alice_d12.json
+> del data\short_term\bob_d12.json
+> ```
 > Day 11 demo used `alice` with a manually-set profile — this demo creates both users from scratch via onboarding.
 
 **Step 1 — Onboard alice (Python developer):**
@@ -332,7 +337,7 @@ exit
 
 **Step 3 — Same question, different profiles → different answers:**
 ```bash
-uv run python -m week_03.main --user alice --chat d12 --no-onboard
+uv run python -m week_03.main --user alice --chat d12
 ```
 ```
 Write a simple hello world web server.
@@ -342,7 +347,7 @@ Write a simple hello world web server.
 exit
 ```
 ```bash
-uv run python -m week_03.main --user bob --chat d12 --no-onboard
+uv run python -m week_03.main --user bob --chat d12
 ```
 ```
 Write a simple hello world web server.
@@ -354,8 +359,14 @@ Still as bob (no `--learn`):
 ```
 From now on use Rust.
 ```
-→ Agent answers but `data/long_term/bob.md` **is unchanged**. No extra LLM calls.
-This is the default behavior; it reproduces Day 11 exactly.
+→ Agent answers but `data/long_term/bob.md` **is unchanged**. Open the file to confirm — Rust does not appear.
+No extra LLM extraction calls were made. This is the default behavior; it reproduces Day 11 exactly.
+
+Also try a command typo to see the new guard:
+```
+/profile forgen forbidden
+```
+→ `Unknown command: /profile forgen forbidden  Type /help.` — it was NOT sent to the LLM.
 
 **Step 5 — Enable learn mode and capture multiple preferences:**
 ```
