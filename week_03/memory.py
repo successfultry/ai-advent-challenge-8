@@ -4,6 +4,7 @@ import json
 import re
 import tempfile
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,10 @@ class TaskContext:
     decisions: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     validation: str = ""
+    current_step: str = ""
+    expected_action: str = ""
+    last_stage_output: str = ""
+    updated_at: str = ""
 
 
 def _parse_profile_md(text: str) -> dict[str, str]:
@@ -145,9 +150,14 @@ class WorkingStore:
             decisions=list(raw.get("decisions", [])),
             notes=list(raw.get("notes", [])),
             validation=raw.get("validation", ""),
+            current_step=raw.get("current_step", ""),
+            expected_action=raw.get("expected_action", ""),
+            last_stage_output=raw.get("last_stage_output", ""),
+            updated_at=raw.get("updated_at", ""),
         )
 
     def save(self, ctx: TaskContext) -> None:
+        ctx.updated_at = datetime.now(tz=UTC).isoformat()
         _atomic_write(
             self._path,
             {
@@ -159,6 +169,10 @@ class WorkingStore:
                 "decisions": ctx.decisions,
                 "notes": ctx.notes,
                 "validation": ctx.validation,
+                "current_step": ctx.current_step,
+                "expected_action": ctx.expected_action,
+                "last_stage_output": ctx.last_stage_output,
+                "updated_at": ctx.updated_at,
             },
         )
 

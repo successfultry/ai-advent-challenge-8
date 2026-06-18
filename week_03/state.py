@@ -16,9 +16,23 @@ class TaskState(StrEnum):
 ALLOWED: dict[TaskState, set[TaskState]] = {
     TaskState.PLANNING: {TaskState.EXECUTION},
     TaskState.EXECUTION: {TaskState.VALIDATION, TaskState.PLANNING},
-    TaskState.VALIDATION: {TaskState.DONE, TaskState.EXECUTION},
+    TaskState.VALIDATION: {TaskState.DONE, TaskState.EXECUTION, TaskState.PLANNING},
     TaskState.DONE: set(),
 }
+
+_NEXT: dict[TaskState, TaskState] = {
+    TaskState.PLANNING: TaskState.EXECUTION,
+    TaskState.EXECUTION: TaskState.VALIDATION,
+    TaskState.VALIDATION: TaskState.DONE,
+}
+
+
+def next_stage(current: str) -> TaskState | None:
+    try:
+        cur = TaskState(current.upper())
+    except ValueError:
+        return None
+    return _NEXT.get(cur)
 
 
 @dataclass

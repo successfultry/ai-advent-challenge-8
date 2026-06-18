@@ -18,7 +18,7 @@ ONBOARD_QUESTIONS: list[tuple[str, str]] = [
 _EXTRACT_SYSTEM = (
     "You extract STABLE, DURABLE user coding preferences from a single user message.\n"
     "You will receive the user's current profile and their latest message.\n"
-    "Return ONLY valid JSON: {\"updates\": {\"key\": \"value\"}} or {\"updates\": {}}.\n"
+    'Return ONLY valid JSON: {"updates": {"key": "value"}} or {"updates": {}}.\n'
     "Keys are one of: language, stack, style, format, constraints, forbidden.\n\n"
     "Rules:\n"
     "- Only include keys that are explicitly stated as permanent preferences.\n"

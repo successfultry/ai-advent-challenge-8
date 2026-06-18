@@ -19,6 +19,7 @@ from week_03.memory import (
     set_active_task_id,
     slug,
 )
+from week_03.pipeline import run_pipeline
 from week_03.prompt_builder import build_system
 from week_03.state import TransitionError, validate_transition
 from week_03.stats import TokenStats
@@ -39,6 +40,9 @@ COMMANDS = {
     "/profile forget <k>": "remove key from profile",
     "/profile learn on|off": "toggle auto-capture of durable prefs",
     "/profile onboard": "rerun onboarding questions",
+    "/run <description>": "create/activate task and run pipeline through all stages",
+    "/resume": "continue active task pipeline from its persisted stage",
+    "/auto on|off": "toggle auto-advance (no per-stage confirmation)",
     "/task new <name>": "create task in PLANNING",
     "/task show": "print current working memory",
     "/task status <state>": "move task state (forward, or roll back EXEC→PLAN / VALID→EXEC)",
@@ -88,6 +92,12 @@ def _print_task(ctx: TaskContext) -> None:
         rows.append(f"[bold]note:[/]     {n}")
     if ctx.validation:
         rows.append(f"[bold]validation:[/] {ctx.validation}")
+    if ctx.current_step:
+        rows.append(f"[bold]current_step:[/] {ctx.current_step}")
+    if ctx.expected_action:
+        rows.append(f"[bold]expected_action:[/] {ctx.expected_action}")
+    if ctx.updated_at:
+        rows.append(f"[bold]updated_at:[/] [dim]{ctx.updated_at}[/]")
     console.print(Panel("\n".join(rows), title=f"Working memory · {ctx.task_id}", expand=False))
     console.print()
 
@@ -99,14 +109,16 @@ def run(
     fresh: bool = False,
     learn: bool = False,
     no_onboard: bool = False,
+    auto: bool = False,
 ) -> None:
     console.print(Panel("[bold]Week 03 · Stateful Agent[/]", expand=False))
     mode = "[yellow]fresh session[/]" if fresh else "[dim]resuming history[/]"
     learn_flag = "[green]learn=on[/]" if learn else "[dim]learn=off[/]"
     onboard_flag = "[dim]onboard=skipped[/]" if no_onboard else "[yellow]onboard=first-run[/]"
+    auto_flag = "[green]auto=on[/]" if auto else "[dim]auto=off[/]"
     console.print(
         f"[dim]user=[cyan]{user}[/]  chat=[cyan]{chat}[/]  {mode}  "
-        f"{learn_flag}  {onboard_flag}[/]\n"
+        f"{learn_flag}  {onboard_flag}  {auto_flag}[/]\n"
     )
 
     profile_store = ProfileStore(user)
@@ -132,6 +144,8 @@ def run(
         else:
             console.print(f"[yellow]Pointer references missing task {task_id!r} — cleared.[/]\n")
             set_active_task_id(user, None)
+
+    auto_mode = auto
 
     def _build_system() -> str:
         return build_system(profile_store.load(), active_task)
@@ -205,6 +219,55 @@ def run(
 
         if user_input == "/profile onboard":
             run_onboarding(profile_store)
+            continue
+
+        if user_input == "/auto on":
+            auto_mode = True
+            console.print("[dim]auto-advance: on[/]\n")
+            continue
+        if user_input == "/auto off":
+            auto_mode = False
+            console.print("[dim]auto-advance: off[/]\n")
+            continue
+
+        if user_input.startswith("/run "):
+            desc = _unquote(user_input[len("/run ") :])
+            if not desc:
+                console.print("[red]Usage: /run <task description>[/]\n")
+                continue
+            new_id = slug(desc)
+            new_ws = WorkingStore(user, new_id)
+            ctx = TaskContext(task_id=new_id, name=desc, state="PLANNING")
+            new_ws.save(ctx)
+            set_active_task_id(user, new_id)
+            working_store = new_ws
+            active_task = ctx
+            console.print(f"[dim]Task [cyan]{desc}[/] created (id=[cyan]{new_id}[/]).[/]\n")
+            run_pipeline(
+                active_task,
+                profile_store,
+                provider,
+                working_store,
+                auto=auto_mode,
+                console=console,
+            )
+            active_task = working_store.load()
+            continue
+
+        if user_input == "/resume":
+            if active_task is None or working_store is None:
+                console.print("[yellow]No active task to resume. Use /run <desc> first.[/]\n")
+                continue
+            active_task = working_store.load()
+            run_pipeline(
+                active_task,
+                profile_store,
+                provider,
+                working_store,
+                auto=auto_mode,
+                console=console,
+            )
+            active_task = working_store.load()
             continue
 
         if user_input.startswith("/task new "):

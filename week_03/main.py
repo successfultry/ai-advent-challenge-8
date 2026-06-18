@@ -25,6 +25,12 @@ if __name__ == "__main__":
         default=False,
         help="skip first-run onboarding for new/empty profiles",
     )
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        default=False,
+        help="auto-advance through pipeline stages without per-stage confirmation",
+    )
     args = parser.parse_args()
     run(
         user=args.user,
@@ -32,4 +38,5 @@ if __name__ == "__main__":
         fresh=args.fresh,
         learn=args.learn,
         no_onboard=args.no_onboard,
+        auto=args.auto,
     )

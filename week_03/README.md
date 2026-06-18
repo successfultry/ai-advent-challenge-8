@@ -4,12 +4,13 @@
 
 ```
 week_03/
-├── main.py            # entrypoint (argparse --user, --chat, --fresh)
+├── main.py            # entrypoint (argparse --user, --chat, --fresh, --auto)
 ├── cli.py             # terminal UI (rich, command loop)
 ├── agent.py           # Agent — orchestrator: ShortTermStore + build_system + LLM
 ├── memory.py          # ProfileStore (Markdown), WorkingStore (JSON), ShortTermStore (JSON)
-├── state.py           # TaskState enum, validate_transition(), typed result types
-├── prompt_builder.py  # build_system(profile, task) -> str  (per-call injection)
+├── state.py           # TaskState enum, validate_transition(), next_stage(), typed result types
+├── prompt_builder.py  # build_system / build_stage_system, STAGE_PROMPTS
+├── pipeline.py        # run_pipeline() — deterministic 4-stage FSM
 └── stats.py           # TokenStats (session totals)
 ```
 
@@ -442,13 +443,156 @@ never in Python
 
 ---
 
+## Day 13 — Task State Machine
+
+### Architecture
+
+Task execution is a **deterministic finite state machine** with 4 stages, each backed by its own
+`Agent` instance (own system prompt, own short-term context). Transitions are decided by code in
+`state.py`, never by the LLM.
+
+```
+PLANNING ──► EXECUTION ──► VALIDATION ──► DONE
+    ▲             │              │
+    └─────────────┘◄─────────────┘  (rollback edges)
+```
+
+Allowed transitions:
+- `PLANNING → EXECUTION`
+- `EXECUTION → VALIDATION | PLANNING` (rollback if plan incomplete)
+- `VALIDATION → DONE | EXECUTION | PLANNING` (rollback if plan was wrong)
+- `DONE → (none)`
+
+The next stage is chosen **in code** from the artifact, never by the LLM picking a state name:
+VALIDATION reads its own `status` field — `PASS → DONE`, `FAIL → EXECUTION` (rollback). An
+EXECUTION⇄VALIDATION loop is bounded by a stage-run budget; on exhaustion the pipeline pauses
+for manual review instead of burning tokens.
+
+**6 agent cognition stages** (perception → memory → reasoning → planning → action → feedback) ≠
+**4 task pipeline stages** (PLANNING / EXECUTION / VALIDATION / DONE). The cognition cycle runs
+inside every individual LLM call; the 4 pipeline stages are at the task orchestration level.
+
+### Artifact contract
+
+Each stage emits **strict JSON** (enforced by `response_format=json_object`), persisted to
+working memory and fed forward into the next stage's system prompt:
+
+| Stage | Required JSON keys |
+|-------|--------------------|
+| PLANNING | `plan[]`, `current_step`, `expected_action` |
+| EXECUTION | `result`, `artifacts[]`, `current_step`, `expected_action` |
+| VALIDATION | `status` (`PASS`/`FAIL`), `issues[]`, `current_step`, `expected_action` |
+| DONE | `summary`, `current_step` (`"done"`), `expected_action` (`"none"`) |
+
+Malformed output triggers **one inline retry**. If still invalid: state does not advance,
+`expected_action` is set to `"retry stage output format"`, pipeline pauses.
+
+### Pause is lossless
+
+State is saved to `WorkingStore` **after each successful stage** — before asking the user to
+continue. On `pause` answer or process exit, restarting with `/resume` continues from the
+persisted stage without re-explaining anything.
+
+### New CLI commands
+
+| Command | Effect |
+|---------|--------|
+| `/run <description>` | Create task + run full pipeline (PLANNING→DONE) |
+| `/resume` | Continue active task from its persisted stage |
+| `/auto on\|off` | Toggle auto-advance (skip per-stage confirmations) |
+
+`--auto` flag for the same effect from startup.
+
+### Demo
+
+**Preconditions** (clear previous run data, adjust user as needed):
+```bash
+rm -f data/working/alice_*.json data/short_term/alice_*.json
+uv run python -m week_03.main --user alice --no-onboard
+```
+
+**1. End-to-end (ask mode — confirms at each stage):**
+```
+/run write a Python HTTP server using stdlib only
+```
+→ PLANNING agent emits a JSON plan, asks "Proceed to EXECUTION? [ok/pause/abort]"
+→ Type `ok`, EXECUTION agent emits code inline, asks "Proceed to VALIDATION?"
+→ Type `ok`, VALIDATION agent returns `status=PASS`, transitions to DONE; the DONE agent emits a
+summary. `Pipeline complete.`
+
+**2. End-to-end (auto mode — no confirmations):**
+```
+/auto on
+/run write a Python HTTP server using stdlib only
+```
+→ Runs PLANNING → EXECUTION → VALIDATION → DONE without pausing.
+
+**3. Validation FAIL → rollback (the key FSM feature):**
+Give a task with a forbidden-tech trap so the validator fails the first attempt:
+```bash
+uv run python -m week_03.main --user alice --no-onboard
+```
+```
+/profile set forbidden no third-party libs, stdlib only
+/auto on
+/run write a web server (the executor may reach for Flask — validation must catch it)
+```
+→ If EXECUTION uses a forbidden lib, VALIDATION returns `status=FAIL`, prints
+`Validation FAILED — rolling back to EXECUTION`, and re-runs EXECUTION. State never reaches DONE
+on a FAIL. (Bounded by the stage-run budget — see Architecture.)
+
+**4. Deterministic transition is enforced (LLM can't skip stages):**
+```
+/run quick task
+```
+→ While in PLANNING, try to jump straight to DONE:
+```
+/task status done
+```
+→ Rejected: `Invalid: PLANNING → DONE. Allowed from PLANNING: EXECUTION`. The FSM in `state.py`
+is the single source of truth, even for manual commands.
+
+**5. Pause and resume (lossless, no re-explaining):**
+```
+/run write a Python HTTP server using stdlib only
+```
+→ After PLANNING, type `pause`. Then exit (`exit`).
+```bash
+uv run python -m week_03.main --user alice --no-onboard
+```
+```
+/task show      # state=EXECUTION, current_step/expected_action restored from disk
+/resume         # continues from EXECUTION — the plan is reloaded from working memory
+```
+
+**6. Per-stage context isolation:**
+After a run, inspect short-term files — each stage has its OWN history, nothing shared:
+```bash
+ls data/short_term/<taskid>_planning.json \
+   data/short_term/<taskid>_execution.json \
+   data/short_term/<taskid>_validation.json
+```
+
+**7. Inspect persisted state:**
+```
+/task show
+```
+→ Shows `current_step`, `expected_action`, `updated_at` alongside plan / decisions / notes /
+the `[summary]` note from the DONE stage.
+
+**8. Back-compat:** a `data/working/*.json` written by Day 11/12 (without `current_step`,
+`expected_action`, `last_stage_output`, `updated_at`) still loads — missing fields default to
+empty and are filled on the next save.
+
+---
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
 |-----|------|----------|------|--------|-------|
 | 11 | Stateful agent with 3-layer memory (short-term / working / long-term), active-task pointer, state machine | `/profile set/show`, `/task new/show/status/note/reset`, `/clear`, `--fresh` | `memory.py`, `state.py`, `prompt_builder.py`, `agent.py`, `stats.py`, `cli.py`, `main.py` | done | _link_ |
 | 12 | Personalization: structured profile, onboarding, opt-in LLM auto-capture, multi-user demo | `/profile forget/learn/onboard`, `--learn`, `--no-onboard` | `learn.py`, `prompt_builder.py`, `cli.py`, `main.py` | done | _link_ |
-| 13 | — | — | — | — | — |
+| 13 | Task state machine: 4 stage-agents, deterministic FSM, artifact contracts, pause/resume, auto mode | `/run`, `/resume`, `/auto on\|off`, `--auto` | `pipeline.py`, `state.py`, `prompt_builder.py`, `memory.py`, `cli.py`, `main.py` | done | _link_ |
 | 14 | — | — | — | — | — |
 | 15 | — | — | — | — | — |
 
