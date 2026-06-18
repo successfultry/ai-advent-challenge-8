@@ -15,7 +15,7 @@ from week_03.stats import TokenStats
 _REQUIRED_KEYS: dict[TaskState, set[str]] = {
     TaskState.PLANNING: {"plan", "current_step", "expected_action"},
     TaskState.EXECUTION: {"result", "artifacts", "current_step", "expected_action"},
-    TaskState.VALIDATION: {"status", "issues", "current_step", "expected_action"},
+    TaskState.VALIDATION: {"status", "issues", "rollback_to", "current_step", "expected_action"},
     TaskState.DONE: {"summary", "current_step", "expected_action"},
 }
 
@@ -36,11 +36,11 @@ def _parse_artifact(raw: str, stage: TaskState) -> dict | None:
         return None
     if stage == TaskState.PLANNING and not isinstance(data.get("plan"), list):
         return None
-    if stage == TaskState.VALIDATION and str(data.get("status", "")).upper() not in {
-        "PASS",
-        "FAIL",
-    }:
-        return None
+    if stage == TaskState.VALIDATION:
+        if str(data.get("status", "")).upper() not in {"PASS", "FAIL"}:
+            return None
+        if str(data.get("rollback_to", "")).lower() not in {"execution", "planning", "none"}:
+            return None
     return data
 
 
@@ -127,7 +127,10 @@ def _target_after(stage: TaskState, artifact: dict) -> TaskState | None:
     """
     if stage == TaskState.VALIDATION:
         status = str(artifact.get("status", "")).upper()
-        return TaskState.DONE if status == "PASS" else TaskState.EXECUTION
+        if status == "PASS":
+            return TaskState.DONE
+        rollback = str(artifact.get("rollback_to", "execution")).lower()
+        return TaskState.PLANNING if rollback == "planning" else TaskState.EXECUTION
     return next_stage(stage.value)
 
 
@@ -178,8 +181,8 @@ def run_pipeline(
         if nxt is None:
             break
 
-        if cur == TaskState.VALIDATION and nxt == TaskState.EXECUTION:
-            console.print("[yellow]Validation FAILED — rolling back to EXECUTION.[/]")
+        if cur == TaskState.VALIDATION and nxt in {TaskState.EXECUTION, TaskState.PLANNING}:
+            console.print(f"[yellow]Validation FAILED — rolling back to {nxt.value}.[/]")
 
         paused = False
         if not auto:

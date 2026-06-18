@@ -464,7 +464,7 @@ Allowed transitions:
 - `DONE → (none)`
 
 The next stage is chosen **in code** from the artifact, never by the LLM picking a state name:
-VALIDATION reads its own `status` field — `PASS → DONE`, `FAIL → EXECUTION` (rollback). An
+VALIDATION reads its own `status` and `rollback_to` fields — `PASS → DONE`, `FAIL + rollback_to=execution → EXECUTION`, `FAIL + rollback_to=planning → PLANNING`. An
 EXECUTION⇄VALIDATION loop is bounded by a stage-run budget; on exhaustion the pipeline pauses
 for manual review instead of burning tokens.
 
@@ -481,7 +481,7 @@ working memory and fed forward into the next stage's system prompt:
 |-------|--------------------|
 | PLANNING | `plan[]`, `current_step`, `expected_action` |
 | EXECUTION | `result`, `artifacts[]`, `current_step`, `expected_action` |
-| VALIDATION | `status` (`PASS`/`FAIL`), `issues[]`, `current_step`, `expected_action` |
+| VALIDATION | `status` (`PASS`/`FAIL`), `issues[]`, `rollback_to` (`none`/`execution`/`planning`), `current_step`, `expected_action` |
 | DONE | `summary`, `current_step` (`"done"`), `expected_action` (`"none"`) |
 
 Malformed output triggers **one inline retry**. If still invalid: state does not advance,

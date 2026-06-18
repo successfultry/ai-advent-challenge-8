@@ -87,9 +87,10 @@ STAGE_PROMPTS: dict[TaskState, str] = {
         "Emit JSON:\n"
         '{"status": "PASS" or "FAIL", '
         '"issues": ["concrete issue", ...], '
+        '"rollback_to": "none" (PASS) | "execution" (code wrong) | "planning" (plan wrong), '
         '"current_step": "validation", '
-        '"expected_action": "proceed to done (PASS) or rollback to execution (FAIL)"}\n'
-        'If everything is correct, status=PASS and issues=["none"].\n'
+        '"expected_action": "proceed to done (PASS) or rollback to execution/planning (FAIL)"}\n'
+        'If everything is correct, status=PASS, issues=["none"], rollback_to="none".\n'
         f"{_STAGE_RULES}"
     ),
     TaskState.DONE: (
