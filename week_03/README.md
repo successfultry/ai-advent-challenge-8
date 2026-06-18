@@ -505,96 +505,80 @@ persisted stage without re-explaining anything.
 
 ### Demo
 
-**Preconditions** (clear previous run data, adjust user as needed):
+Fast, self-contained script. Each case is one demonstrable claim. Reset first:
 ```bash
-rm -f data/working/alice_*.json data/short_term/alice_*.json
+rm -f data/working/alice_*.json data/short_term/*alice* data/short_term/write-*
 uv run python -m week_03.main --user alice --no-onboard
 ```
 
-**1. End-to-end (ask mode — confirms at each stage):**
+**1. Manual mode — pause at every stage boundary.**
 ```
 /run write a Python HTTP server using stdlib only
 ```
-→ PLANNING agent emits a JSON plan, asks "Proceed to EXECUTION? [ok/pause/abort]"
-→ Type `ok`, EXECUTION agent emits code inline, asks "Proceed to VALIDATION?"
-→ Type `ok`, VALIDATION agent returns `status=PASS`, transitions to DONE; the DONE agent emits a
-summary. `Pipeline complete.`
+PLANNING emits a JSON plan, then asks `Proceed to EXECUTION? [ok/pause/abort]`. Type `ok` →
+EXECUTION emits code inline, asks again → `ok` → VALIDATION returns `status=PASS` → DONE emits a
+summary → `Pipeline complete.` **You confirm and inspect every stage.**
 
-**2. End-to-end (auto mode — no confirmations):**
+**2. Auto mode — full run, no confirmations.**
 ```
 /auto on
-/run write a Python HTTP server using stdlib only
+/run write a Python FizzBuzz script
 ```
-→ Runs PLANNING → EXECUTION → VALIDATION → DONE without pausing.
+Runs PLANNING → EXECUTION → VALIDATION → DONE start-to-finish, no prompts. `/auto off` to go back
+to manual.
 
-**3. Validation FAIL → rollback to PLANNING (anti-loop budget):**
-Use a self-contradictory task — impossible to satisfy, so validation always fails:
+**3. Code drives transitions — the LLM can't skip stages.**
 ```
-/auto on
-/run write a Python function with NO parameters that adds two numbers passed as arguments
-```
-→ PLANNING plans a function with params. EXECUTION writes `def add(a, b)`.
-VALIDATION sees the contradiction (`status=FAIL`, `rollback_to=planning`) → `Validation FAILED
-— rolling back to PLANNING`. Second attempt reimagines the plan (reads from stdin), VALIDATION
-still FAIL. After 6 stage-runs: `Stage budget exhausted. Paused for manual review.`
-
-This demonstrates: FAIL→PLANNING rollback, anti-loop budget, and that the FSM never advances
-to DONE on a logically unsatisfiable task.
-
-**4. Deterministic transition is enforced (LLM can't skip stages):**
-```
-/task new quick task
+/task new quick demo
 /task status done
 ```
-→ Rejected: `Invalid: PLANNING → DONE. Allowed from PLANNING: EXECUTION`. The FSM in `state.py`
-is the single source of truth, even for manual commands. (`/run` enters the pipeline immediately,
-so use `/task new` here to stay on the CLI prompt.)
+Rejected: `Invalid: PLANNING → DONE. Allowed from PLANNING: EXECUTION`. The FSM in `state.py` is
+the only authority, even for manual commands.
 
-**5. Pause and resume (lossless, no re-explaining):**
+**4. Validation FAIL → rollback + anti-loop budget.**
+Self-contradictory task (impossible to satisfy):
 ```
-/run write a Python HTTP server using stdlib only
+/run write a Python function with NO parameters that adds two numbers passed as arguments
 ```
-→ After PLANNING, type `pause`. Then exit (`exit`).
+EXECUTION writes `def add(a, b)`; VALIDATION returns `status=FAIL`, `rollback_to=planning` →
+`Validation FAILED — rolling back to PLANNING`. It retries, fails again, and after 6 stage-runs:
+`Stage budget exhausted. Paused for manual review.` **The FSM never reaches DONE on an
+unsatisfiable task, and never loops forever.**
+
+**5. Pause + resume is lossless (no re-explaining).**
+```
+/run write a Python CLI calculator with stdlib argparse
+```
+After PLANNING type `pause`, then `exit`. Restart and continue:
 ```bash
 uv run python -m week_03.main --user alice --no-onboard
 ```
 ```
-/task show      # state=EXECUTION, current_step/expected_action restored from disk
-/resume         # continues from EXECUTION — the plan is reloaded from working memory
+/task show      # state=EXECUTION — current_step/expected_action/plan restored from disk
+/resume         # continues from EXECUTION using the saved plan — no re-planning
 ```
 
-**6. Per-stage context isolation:**
-After a run, inspect short-term files — each stage has its OWN history, nothing shared:
+**6. Per-stage context isolation (short-term ≠ working).**
+Each stage-agent has its own short-term history; the plan crosses stages only via working memory:
 ```bash
-ls data/short_term/<taskid>_PLANNING.json \
-   data/short_term/<taskid>_EXECUTION.json \
-   data/short_term/<taskid>_VALIDATION.json
+ls data/short_term/write-a-python-http-server-using-stdlib-only_*.json
+# _PLANNING.json _EXECUTION.json _VALIDATION.json _DONE.json — separate, nothing shared
+cat data/working/alice_write-a-python-http-server-using-stdlib-only.json
+# plan / [execution] note / validation / state — the distilled task state passed forward
 ```
 
-**7. Inspect persisted state:**
+**7. Multiple tasks — switch the active one.**
 ```
-/task show
+/task list                  # all tasks + state, active marked with →
+/task switch write-a-python-fizzbuzz-script
+/task show                  # different task, its own state
 ```
-→ Shows `current_step`, `expected_action`, `updated_at` alongside plan / decisions / notes /
-the `[summary]` note from the DONE stage.
+Switch updates the pointer (`data/active_task/alice.json`) without touching task content;
+`/resume` then continues the switched-to task.
 
-**8. Switching between tasks:**
-```
-/task list
-```
-→ Lists all tasks for this user with their state. Active task is marked with `→`.
-```
-/task switch write-a-fizzbuzz-in-python
-/task show
-/task switch implement-a-simple-calculator-in-python
-/resume
-```
-→ Switch active task without touching its content. `/resume` continues from the switched-to
-task's persisted stage. Pointer file (`data/active_task/alice.json`) is updated.
-
-**9. Back-compat:** a `data/working/*.json` written by Day 11/12 (without `current_step`,
-`expected_action`, `last_stage_output`, `updated_at`) still loads — missing fields default to
-empty and are filled on the next save.
+**8. Back-compat:** Day 11/12 `data/working/*.json` (no `current_step` / `expected_action` /
+`last_stage_output` / `updated_at`) still loads — missing fields default to empty, filled on next
+save.
 
 ---
 

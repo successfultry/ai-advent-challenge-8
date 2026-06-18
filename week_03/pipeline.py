@@ -101,6 +101,9 @@ def _run_stage(
     elif stage == TaskState.EXECUTION:
         result = artifact.get("result", "")
         if result:
+            # keep only the latest execution output so VALIDATION (and rollback
+            # loops) judge the current code, not a pile of stale attempts
+            task.notes = [n for n in task.notes if not n.startswith("[execution]")]
             task.notes.append(f"[execution] {result}")
     elif stage == TaskState.VALIDATION:
         status = artifact.get("status", "?")

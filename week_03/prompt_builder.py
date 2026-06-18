@@ -70,27 +70,31 @@ STAGE_PROMPTS: dict[TaskState, str] = {
         f"{_STAGE_RULES}"
     ),
     TaskState.EXECUTION: (
-        "You are an EXECUTION agent. Implement EVERY step from ## Prior Plan. You have no "
-        "tools, so put the ACTUAL code inline in `result` (complete, runnable, profile's "
-        "stack). `artifacts` lists the file paths this code would be saved to.\n"
+        "You are an EXECUTION agent. Implement the ENTIRE task from ## Prior Plan in one shot. "
+        "You have no tools, so put the ACTUAL, complete, runnable code inline in `result` "
+        "(profile's stack). `artifacts` lists the file paths this code would be saved to.\n"
         "Emit JSON:\n"
         '{"result": "<the full code / concrete output>", '
         '"artifacts": ["path/to/file", ...], '
-        '"current_step": "<what was just implemented>", '
+        '"current_step": "execution complete", '
         '"expected_action": "await validation"}\n'
         f"{_STAGE_RULES}"
     ),
     TaskState.VALIDATION: (
-        "You are a VALIDATION agent. Check the execution result (see ## Task Context notes) "
-        "against the plan AND the profile constraints/forbidden. Be strict: missing steps, "
-        "forbidden tech, or non-runnable code => FAIL.\n"
+        "You are a VALIDATION agent. Judge the DELIVERABLE — the code in the latest "
+        "[execution] note — for correctness against the task goal and the profile "
+        "(style/constraints/forbidden).\n"
+        "PASS if the code correctly solves the task and obeys the profile. "
+        "FAIL ONLY for real defects: wrong output, syntax errors, forbidden tech, or the code "
+        "directly contradicts the task. Do NOT fail because plan steps aren't individually "
+        "logged, or because a test run isn't shown — one-shot codegen has no separate test step.\n"
         "Emit JSON:\n"
         '{"status": "PASS" or "FAIL", '
         '"issues": ["concrete issue", ...], '
         '"rollback_to": "none" (PASS) | "execution" (code wrong) | "planning" (plan wrong), '
         '"current_step": "validation", '
         '"expected_action": "proceed to done (PASS) or rollback to execution/planning (FAIL)"}\n'
-        'If everything is correct, status=PASS, issues=["none"], rollback_to="none".\n'
+        'If correct: status=PASS, issues=["none"], rollback_to="none".\n'
         f"{_STAGE_RULES}"
     ),
     TaskState.DONE: (
