@@ -124,8 +124,9 @@ def run_pipeline(
                 console.print("[dim]Task is already DONE.[/]\n")
                 return
             # terminal stage: emit the summary artifact, then finish
-            _run_stage(cur, task, profile_store, provider, working_store, stats, console)
-            console.print("[bold green]Pipeline complete.[/]\n")
+            artifact = _run_stage(cur, task, profile_store, provider, working_store, stats, console)
+            if artifact is not None:
+                console.print("[bold green]Pipeline complete.[/]\n")
             return
 
         runs += 1

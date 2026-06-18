@@ -543,14 +543,12 @@ on a FAIL. (Bounded by the stage-run budget — see Architecture.)
 
 **4. Deterministic transition is enforced (LLM can't skip stages):**
 ```
-/run quick task
-```
-→ While in PLANNING, try to jump straight to DONE:
-```
+/task new quick task
 /task status done
 ```
 → Rejected: `Invalid: PLANNING → DONE. Allowed from PLANNING: EXECUTION`. The FSM in `state.py`
-is the single source of truth, even for manual commands.
+is the single source of truth, even for manual commands. (`/run` enters the pipeline immediately,
+so use `/task new` here to stay on the CLI prompt.)
 
 **5. Pause and resume (lossless, no re-explaining):**
 ```

@@ -49,11 +49,10 @@ class Agent:
         self.short_term.add("assistant", "".join(chunks))
 
     def ask_once(self, user_input: str) -> str:
+        self.last_usage = None
+        self.short_term.add("user", user_input)
         system = self.build_system()
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_input},
-        ]
+        messages = [{"role": "system", "content": system}, *self.short_term.messages()]
         content, _, usage = get_response(
             self.client,
             self.model_id,
@@ -63,4 +62,5 @@ class Agent:
         if usage is not None:
             self.stats.add(usage, self.model_id)
             self.last_usage = usage
+        self.short_term.add("assistant", content)
         return content
