@@ -88,6 +88,9 @@ STAGE_PROMPTS: dict[TaskState, str] = {
         "FAIL ONLY for real defects: wrong output, syntax errors, forbidden tech, or the code "
         "directly contradicts the task. Do NOT fail because plan steps aren't individually "
         "logged, or because a test run isn't shown — one-shot codegen has no separate test step.\n"
+        'Decide status FIRST. `issues` is a flat list of concrete defects or ["none"] — never '
+        "put reasoning or second-guessing there. FAIL requires rollback_to=execution|planning; "
+        "PASS requires rollback_to=none.\n"
         "Emit JSON:\n"
         '{"status": "PASS" or "FAIL", '
         '"issues": ["concrete issue", ...], '

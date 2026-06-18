@@ -535,13 +535,25 @@ to manual.
 Rejected: `Invalid: PLANNING → DONE. Allowed from PLANNING: EXECUTION`. The FSM in `state.py` is
 the only authority, even for manual commands.
 
-**4. Validation FAIL → rollback + anti-loop budget.**
-Self-contradictory task (impossible to satisfy):
+**4a. Validation FAIL → rollback → recover → PASS.**
+A task with a strong wrong-default: `list(set(x))` is the reflex answer but breaks ordering, and
+the spec explicitly demands order. Run on a weaker model (`gpt-4o-mini` / `llama-8b`) for a
+reliable first-attempt miss:
+```
+/auto on
+/run write a Python function dedupe(items) that removes duplicates while preserving original order
+```
+First EXECUTION often uses `set()` (order lost) → VALIDATION `status=FAIL`, `rollback_to=execution`
+→ `Validation FAILED — rolling back to EXECUTION` → second EXECUTION uses `dict.fromkeys` → PASS →
+DONE. **This is the recovery story: fail, roll back, fix, pass.** (Model-dependent — a strong model
+may pass first try. Re-run or pick a weaker model for the clip.)
+
+**4b. Anti-loop budget on an impossible task.**
+Self-contradictory task (can never satisfy):
 ```
 /run write a Python function with NO parameters that adds two numbers passed as arguments
 ```
-EXECUTION writes `def add(a, b)`; VALIDATION returns `status=FAIL`, `rollback_to=planning` →
-`Validation FAILED — rolling back to PLANNING`. It retries, fails again, and after 6 stage-runs:
+VALIDATION keeps returning `status=FAIL` → rollback → retry. After 6 stage-runs:
 `Stage budget exhausted. Paused for manual review.` **The FSM never reaches DONE on an
 unsatisfiable task, and never loops forever.**
 

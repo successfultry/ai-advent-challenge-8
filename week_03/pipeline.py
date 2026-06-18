@@ -37,9 +37,18 @@ def _parse_artifact(raw: str, stage: TaskState) -> dict | None:
     if stage == TaskState.PLANNING and not isinstance(data.get("plan"), list):
         return None
     if stage == TaskState.VALIDATION:
-        if str(data.get("status", "")).upper() not in {"PASS", "FAIL"}:
+        status = str(data.get("status", "")).upper()
+        rb = str(data.get("rollback_to", "")).lower()
+        if status not in {"PASS", "FAIL"}:
             return None
-        if str(data.get("rollback_to", "")).lower() not in {"execution", "planning", "none"}:
+        if rb not in {"execution", "planning", "none"}:
+            return None
+        # status and rollback_to must agree — a FAIL with rollback_to=none (or a
+        # PASS that still wants a rollback) is a contradictory verdict; reject it
+        # so the inline retry forces the model to commit to one answer.
+        if status == "PASS" and rb != "none":
+            return None
+        if status == "FAIL" and rb not in {"execution", "planning"}:
             return None
     return data
 
