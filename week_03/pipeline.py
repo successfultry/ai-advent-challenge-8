@@ -146,6 +146,14 @@ def _target_after(stage: TaskState, artifact: dict) -> TaskState | None:
     return next_stage(stage.value)
 
 
+def _ask(console: Console, prompt_text: str) -> str | None:
+    try:
+        return Prompt.ask(prompt_text, default="ok").strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        console.print()
+        return None
+
+
 def run_pipeline(
     task: TaskContext,
     profile_store: ProfileStore,
@@ -157,6 +165,24 @@ def run_pipeline(
     stats: TokenStats,
 ) -> None:
     runs = 0
+
+    # Resume gate: a paused task carries `awaiting` (the next stage it stopped
+    # before). The completed stage is NOT re-run; we only ask consent to advance.
+    if task.awaiting:
+        target = task.awaiting
+        if not auto:
+            ans = _ask(console, f"[green]Resume: proceed to {target}?[/] [ok/abort]")
+            if ans != "ok":
+                console.print(f"[dim]Still paused after {task.state}. /resume later.[/]\n")
+                return
+        res = validate_transition(task.state, target)
+        if isinstance(res, TransitionError):
+            console.print(f"[red]{res.message}[/]\n")
+            return
+        task.state = res.new_state.value
+        task.awaiting = ""
+        working_store.save(task)
+        console.print(f"[dim]→ {task.state}[/]\n")
 
     while True:
         try:
@@ -196,24 +222,26 @@ def run_pipeline(
         if cur == TaskState.VALIDATION and nxt in {TaskState.EXECUTION, TaskState.PLANNING}:
             console.print(f"[yellow]Validation FAILED — rolling back to {nxt.value}.[/]")
 
-        paused = False
         if not auto:
-            ans = (
-                Prompt.ask(
-                    f"[green]Stage {cur.value} done. Proceed to {nxt.value}?[/] [ok/pause/abort]",
-                    default="ok",
-                )
-                .strip()
-                .lower()
+            ans = _ask(
+                console,
+                f"[green]Stage {cur.value} done. Proceed to {nxt.value}?[/] [ok/pause/abort]",
             )
             if ans == "abort":
-                # abort does NOT advance: state stays on the current stage
+                # abort does NOT advance and does NOT queue: state stays on cur
                 console.print("[dim]Pipeline aborted.[/]\n")
                 return
-            paused = ans == "pause"
+            if ans is None or ans == "pause":
+                # pause keeps state on the completed stage and queues the next one
+                # in `awaiting`; /resume asks consent before running it (abortable)
+                task.awaiting = nxt.value
+                working_store.save(task)
+                console.print(
+                    f"[dim]Paused after {cur.value}. /resume to continue (you can abort then).[/]\n"
+                )
+                return
 
-        # advance + persist BEFORE returning, so pause/exit is lossless and
-        # /resume continues from the NEXT stage (no re-running the current one)
+        # ok (or auto): advance + persist, keep running
         result = validate_transition(task.state, nxt.value)
         if isinstance(result, TransitionError):
             console.print(f"[red]{result.message}[/]\n")
@@ -221,7 +249,3 @@ def run_pipeline(
         task.state = result.new_state.value
         working_store.save(task)
         console.print(f"[dim]→ {task.state}[/]\n")
-
-        if paused:
-            console.print("[dim]Pipeline paused. Use /resume to continue.[/]\n")
-            return

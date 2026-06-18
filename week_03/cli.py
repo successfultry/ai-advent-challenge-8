@@ -99,6 +99,8 @@ def _print_task(ctx: TaskContext) -> None:
         rows.append(f"[bold]current_step:[/] {ctx.current_step}")
     if ctx.expected_action:
         rows.append(f"[bold]expected_action:[/] {ctx.expected_action}")
+    if ctx.awaiting:
+        rows.append(f"[bold]awaiting:[/] [yellow]{ctx.awaiting}[/] [dim](paused — /resume)[/]")
     if ctx.updated_at:
         rows.append(f"[bold]updated_at:[/] [dim]{ctx.updated_at}[/]")
     console.print(Panel("\n".join(rows), title=f"Working memory · {ctx.task_id}", expand=False))

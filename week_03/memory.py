@@ -72,6 +72,7 @@ class TaskContext:
     current_step: str = ""
     expected_action: str = ""
     last_stage_output: str = ""
+    awaiting: str = ""
     updated_at: str = ""
 
 
@@ -153,6 +154,7 @@ class WorkingStore:
             current_step=raw.get("current_step", ""),
             expected_action=raw.get("expected_action", ""),
             last_stage_output=raw.get("last_stage_output", ""),
+            awaiting=raw.get("awaiting", ""),
             updated_at=raw.get("updated_at", ""),
         )
 
@@ -172,6 +174,7 @@ class WorkingStore:
                 "current_step": ctx.current_step,
                 "expected_action": ctx.expected_action,
                 "last_stage_output": ctx.last_stage_output,
+                "awaiting": ctx.awaiting,
                 "updated_at": ctx.updated_at,
             },
         )
