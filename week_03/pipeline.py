@@ -11,15 +11,37 @@ from week_03.prompt_builder import TaskState, build_stage_system
 from week_03.state import TransitionError, next_stage, validate_transition
 from week_03.stats import TokenStats
 
+# Required keys per stage — enforces the artifact contract, not just "is JSON".
+_REQUIRED_KEYS: dict[TaskState, set[str]] = {
+    TaskState.PLANNING: {"plan", "current_step", "expected_action"},
+    TaskState.EXECUTION: {"result", "artifacts", "current_step", "expected_action"},
+    TaskState.VALIDATION: {"status", "issues", "current_step", "expected_action"},
+    TaskState.DONE: {"summary", "current_step", "expected_action"},
+}
 
-def _parse_artifact(raw: str) -> dict | None:
+
+def _parse_artifact(raw: str, stage: TaskState) -> dict | None:
+    """Parse + validate against the stage's artifact contract.
+
+    Returns None on invalid JSON, missing required keys, or (for VALIDATION) a
+    status outside {PASS, FAIL}. None triggers the inline retry / pause path.
+    """
     try:
         data = json.loads(raw)
-        if isinstance(data, dict):
-            return data
     except (json.JSONDecodeError, ValueError):
-        pass
-    return None
+        return None
+    if not isinstance(data, dict):
+        return None
+    if not _REQUIRED_KEYS[stage] <= data.keys():
+        return None
+    if stage == TaskState.PLANNING and not isinstance(data.get("plan"), list):
+        return None
+    if stage == TaskState.VALIDATION and str(data.get("status", "")).upper() not in {
+        "PASS",
+        "FAIL",
+    }:
+        return None
+    return data
 
 
 def _run_stage(
@@ -40,22 +62,31 @@ def _run_stage(
 
     console.print(f"\n[bold cyan]Stage: {stage.value}[/]\n")
 
-    raw = agent.ask_once(f"Task: {task.name}")
-    console.print(f"[dim]{raw}[/]\n")
-
-    artifact = _parse_artifact(raw)
-    if artifact is None:
-        console.print("[yellow]Malformed JSON. Retrying once...[/]")
-        raw = agent.ask_once("Return ONLY valid JSON matching the required schema.")
+    try:
+        raw = agent.ask_once(f"Task: {task.name}")
         console.print(f"[dim]{raw}[/]\n")
-        artifact = _parse_artifact(raw)
+
+        artifact = _parse_artifact(raw, stage)
+        if artifact is None:
+            console.print("[yellow]Malformed artifact. Retrying once...[/]")
+            raw = agent.ask_once("Return ONLY valid JSON matching the required schema.")
+            console.print(f"[dim]{raw}[/]\n")
+            artifact = _parse_artifact(raw, stage)
+    except Exception as e:
+        task.expected_action = "retry stage llm call"
+        working_store.save(task)
+        console.print(
+            f"[red]Stage {stage.value} LLM call failed: {e}. "
+            "State preserved — use /resume to retry.[/]\n"
+        )
+        return None
 
     if artifact is None:
         task.expected_action = "retry stage output format"
         task.last_stage_output = raw[:500]
         working_store.save(task)
         console.print(
-            f"[red]Stage {stage.value} failed to produce valid JSON. "
+            f"[red]Stage {stage.value} failed the artifact contract. "
             "State not advanced. Use /resume to retry.[/]\n"
         )
         return None
@@ -108,8 +139,8 @@ def run_pipeline(
     *,
     auto: bool,
     console: Console,
+    stats: TokenStats,
 ) -> None:
-    stats = TokenStats()
     runs = 0
 
     while True:
@@ -150,6 +181,7 @@ def run_pipeline(
         if cur == TaskState.VALIDATION and nxt == TaskState.EXECUTION:
             console.print("[yellow]Validation FAILED — rolling back to EXECUTION.[/]")
 
+        paused = False
         if not auto:
             ans = (
                 Prompt.ask(
@@ -159,13 +191,14 @@ def run_pipeline(
                 .strip()
                 .lower()
             )
-            if ans == "pause":
-                console.print("[dim]Pipeline paused. Use /resume to continue.[/]\n")
-                return
             if ans == "abort":
+                # abort does NOT advance: state stays on the current stage
                 console.print("[dim]Pipeline aborted.[/]\n")
                 return
+            paused = ans == "pause"
 
+        # advance + persist BEFORE returning, so pause/exit is lossless and
+        # /resume continues from the NEXT stage (no re-running the current one)
         result = validate_transition(task.state, nxt.value)
         if isinstance(result, TransitionError):
             console.print(f"[red]{result.message}[/]\n")
@@ -173,3 +206,7 @@ def run_pipeline(
         task.state = result.new_state.value
         working_store.save(task)
         console.print(f"[dim]→ {task.state}[/]\n")
+
+        if paused:
+            console.print("[dim]Pipeline paused. Use /resume to continue.[/]\n")
+            return

@@ -169,8 +169,8 @@ def run(
 
         if user_input == "/switch":
             console.print()
-            new_provider = pick_provider()
-            agent.switch_provider(new_provider)
+            provider = pick_provider()
+            agent.switch_provider(provider)
             console.print(Rule(f"[green]{agent.provider_name}[/] · [dim]{agent.model_id}[/]"))
             continue
 
@@ -250,6 +250,7 @@ def run(
                 working_store,
                 auto=auto_mode,
                 console=console,
+                stats=stats,
             )
             active_task = working_store.load()
             continue
@@ -266,6 +267,7 @@ def run(
                 working_store,
                 auto=auto_mode,
                 console=console,
+                stats=stats,
             )
             active_task = working_store.load()
             continue

@@ -566,9 +566,9 @@ uv run python -m week_03.main --user alice --no-onboard
 **6. Per-stage context isolation:**
 After a run, inspect short-term files — each stage has its OWN history, nothing shared:
 ```bash
-ls data/short_term/<taskid>_planning.json \
-   data/short_term/<taskid>_execution.json \
-   data/short_term/<taskid>_validation.json
+ls data/short_term/<taskid>_PLANNING.json \
+   data/short_term/<taskid>_EXECUTION.json \
+   data/short_term/<taskid>_VALIDATION.json
 ```
 
 **7. Inspect persisted state:**
