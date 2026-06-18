@@ -11,6 +11,7 @@ from shared.pricing import cost
 from week_03.agent import Agent
 from week_03.learn import extract_preferences, run_onboarding
 from week_03.memory import (
+    DATA_DIR,
     ProfileStore,
     ShortTermStore,
     TaskContext,
@@ -43,6 +44,8 @@ COMMANDS = {
     "/run <description>": "create/activate task and run pipeline through all stages",
     "/resume": "continue active task pipeline from its persisted stage",
     "/auto on|off": "toggle auto-advance (no per-stage confirmation)",
+    "/task list": "list all tasks for this user",
+    "/task switch <id>": "switch active task by id (loads working, keeps content)",
     "/task new <name>": "create task in PLANNING",
     "/task show": "print current working memory",
     "/task status <state>": "move task state (forward, or roll back EXEC→PLAN / VALID→EXEC)",
@@ -270,6 +273,36 @@ def run(
                 stats=stats,
             )
             active_task = working_store.load()
+            continue
+
+        if user_input == "/task list":
+            paths = sorted((DATA_DIR / "working").glob(f"{user}_*.json"))
+            if not paths:
+                console.print("[yellow]No tasks yet. Use /run or /task new.[/]\n")
+                continue
+            for p in paths:
+                tid = p.stem[len(user) + 1 :]
+                st = WorkingStore(user, tid).load()
+                marker = "→ " if active_task and active_task.task_id == tid else "  "
+                console.print(f"[dim]{marker}[cyan]{tid}[/] ([yellow]{st.state}[/]) — {st.name}[/]")
+            console.print()
+            continue
+
+        if user_input.startswith("/task switch "):
+            tid = _unquote(user_input[len("/task switch ") :])
+            if not tid:
+                console.print("[red]Usage: /task switch <id>. Use /task list to see ids.[/]\n")
+                continue
+            ws = WorkingStore(user, tid)
+            if not ws.exists():
+                console.print(f"[red]No such task: {tid!r}. Use /task list.[/]\n")
+                continue
+            working_store = ws
+            active_task = ws.load()
+            set_active_task_id(user, tid)
+            console.print(
+                f"[dim]Switched to [cyan]{active_task.name}[/] ({active_task.state}).[/]\n"
+            )
             continue
 
         if user_input.startswith("/task new "):

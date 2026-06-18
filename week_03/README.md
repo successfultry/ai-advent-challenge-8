@@ -527,19 +527,19 @@ summary. `Pipeline complete.`
 ```
 → Runs PLANNING → EXECUTION → VALIDATION → DONE without pausing.
 
-**3. Validation FAIL → rollback (the key FSM feature):**
-Give a task with a forbidden-tech trap so the validator fails the first attempt:
-```bash
-uv run python -m week_03.main --user alice --no-onboard
+**3. Validation FAIL → rollback to PLANNING (anti-loop budget):**
+Use a self-contradictory task — impossible to satisfy, so validation always fails:
 ```
-```
-/profile set forbidden no third-party libs, stdlib only
 /auto on
-/run write a web server (the executor may reach for Flask — validation must catch it)
+/run write a Python function with NO parameters that adds two numbers passed as arguments
 ```
-→ If EXECUTION uses a forbidden lib, VALIDATION returns `status=FAIL`, prints
-`Validation FAILED — rolling back to EXECUTION`, and re-runs EXECUTION. State never reaches DONE
-on a FAIL. (Bounded by the stage-run budget — see Architecture.)
+→ PLANNING plans a function with params. EXECUTION writes `def add(a, b)`.
+VALIDATION sees the contradiction (`status=FAIL`, `rollback_to=planning`) → `Validation FAILED
+— rolling back to PLANNING`. Second attempt reimagines the plan (reads from stdin), VALIDATION
+still FAIL. After 6 stage-runs: `Stage budget exhausted. Paused for manual review.`
+
+This demonstrates: FAIL→PLANNING rollback, anti-loop budget, and that the FSM never advances
+to DONE on a logically unsatisfiable task.
 
 **4. Deterministic transition is enforced (LLM can't skip stages):**
 ```
@@ -578,7 +578,21 @@ ls data/short_term/<taskid>_PLANNING.json \
 → Shows `current_step`, `expected_action`, `updated_at` alongside plan / decisions / notes /
 the `[summary]` note from the DONE stage.
 
-**8. Back-compat:** a `data/working/*.json` written by Day 11/12 (without `current_step`,
+**8. Switching between tasks:**
+```
+/task list
+```
+→ Lists all tasks for this user with their state. Active task is marked with `→`.
+```
+/task switch write-a-fizzbuzz-in-python
+/task show
+/task switch implement-a-simple-calculator-in-python
+/resume
+```
+→ Switch active task without touching its content. `/resume` continues from the switched-to
+task's persisted stage. Pointer file (`data/active_task/alice.json`) is updated.
+
+**9. Back-compat:** a `data/working/*.json` written by Day 11/12 (without `current_step`,
 `expected_action`, `last_stage_output`, `updated_at`) still loads — missing fields default to
 empty and are filled on the next save.
 
