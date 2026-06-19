@@ -55,8 +55,8 @@ STAGE_PROMPTS: dict[TaskState, str] = {
         "(each a single verifiable action, in the profile's stack). Do NOT write the "
         "implementation yet.\n"
         'ACCEPTED requires reason="none" and a non-empty plan. REJECTED requires '
-        'reason to cite the violated invariant, plan=[], current_step="rejected", '
-        'expected_action="revise request", and no implementation steps.\n'
+        'reason to cite the violated invariant, plan=[], current_step indicating rejection, '
+        "and expected_action explaining what the user should revise.\n"
         "Emit JSON:\n"
         '{"status": "ACCEPTED" | "REJECTED", '
         '"reason": "none" | "<why rejected>", '

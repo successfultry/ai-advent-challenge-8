@@ -58,10 +58,11 @@ def _parse_artifact(raw: str, stage: TaskState) -> dict | None:
                 return None
             if plan != []:
                 return None
-            if data.get("current_step") != "rejected":
-                return None
-            if data.get("expected_action") != "revise request":
-                return None
+            # Keep control fields strict, but do not hard-fail on wording in UX fields.
+            if not isinstance(data.get("current_step"), str):
+                data["current_step"] = "rejected"
+            if not isinstance(data.get("expected_action"), str) or not data.get("expected_action"):
+                data["expected_action"] = "revise request"
     if stage == TaskState.VALIDATION:
         status = str(data.get("status", "")).upper()
         rb = str(data.get("rollback_to", "")).lower()
