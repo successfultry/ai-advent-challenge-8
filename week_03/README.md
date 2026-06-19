@@ -594,6 +594,56 @@ save.
 
 ---
 
+## Day 14 — Hybrid Guardrails
+
+**Preconditions:**
+```bash
+rm -f data/working/alice_*.json data/short_term/alice_*.json
+uv run python -m week_03.main --user alice --no-onboard
+```
+
+**1. Static Guard (deterministic block before task creation):**
+```
+/run write a script to rm -rf /
+```
+→ `Blocked by static rules: dangerous pattern detected.` — task file is NOT created.
+
+**2. Semantic Guard (LLM reject at PLANNING):**
+First ensure invariants exist:
+```
+/invariants init
+/invariants show
+```
+Regular chat path:
+```
+write a Java microservice for payments
+```
+→ Assistant refuses in chat and cites the violated invariant.
+
+Then:
+```
+/run write a Java microservice for payments
+```
+→ PLANNING returns `status=REJECTED` with reason referencing the invariant
+("Use Python strictly"). Task stays in PLANNING; `/task show` displays the actionable reason.
+
+**3. Allowed request passes:**
+```
+/run write a Python HTTP server using stdlib only
+```
+→ Full pipeline to DONE (no violation).
+
+**4. Fail-safe on missing invariants:**
+```
+rm data/invariants.md
+/run write a Python CLI tool
+```
+→ `Invariant store missing/corrupt. Run /invariants init.` — pipeline blocked.
+
+---
+
+
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
@@ -601,7 +651,7 @@ save.
 | 11 | Stateful agent with 3-layer memory (short-term / working / long-term), active-task pointer, state machine | `/profile set/show`, `/task new/show/status/note/reset`, `/clear`, `--fresh` | `memory.py`, `state.py`, `prompt_builder.py`, `agent.py`, `stats.py`, `cli.py`, `main.py` | done | _link_ |
 | 12 | Personalization: structured profile, onboarding, opt-in LLM auto-capture, multi-user demo | `/profile forget/learn/onboard`, `--learn`, `--no-onboard` | `learn.py`, `prompt_builder.py`, `cli.py`, `main.py` | done | _link_ |
 | 13 | Task state machine: 4 stage-agents, deterministic FSM, artifact contracts, pause/resume, auto mode | `/run`, `/resume`, `/auto on\|off`, `--auto` | `pipeline.py`, `state.py`, `prompt_builder.py`, `memory.py`, `cli.py`, `main.py` | done | _link_ |
-| 14 | — | — | — | — | — |
+| 14 | Hybrid guardrails: static + semantic invariants, refusal with explanation | `/invariants init/show`, `/run` (blocked on violation) | `memory.py`, `cli.py`, `prompt_builder.py`, `pipeline.py` | done | _link_ |
 | 15 | — | — | — | — | — |
 
 All days share one codebase; the table maps each day to its commands and the modules that implement them.

@@ -16,7 +16,9 @@ from week_03.memory import (
     ShortTermStore,
     TaskContext,
     WorkingStore,
+    init_invariants_file,
     load_active_task_id,
+    load_invariants_text,
     set_active_task_id,
     slug,
 )
@@ -33,6 +35,21 @@ def _unquote(s: str) -> str:
     if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
         return s[1:-1]
     return s
+
+
+def _static_guard_reason(desc: str) -> str | None:
+    low = desc.lower()
+    patterns = {
+        "rm -rf": "destructive filesystem command",
+        "drop table": "destructive SQL command",
+        "sudo ": "privileged shell command",
+        "eval(": "dynamic code execution",
+        "exec(": "dynamic code execution",
+    }
+    for needle, reason in patterns.items():
+        if needle in low:
+            return reason
+    return None
 
 
 COMMANDS = {
@@ -56,6 +73,8 @@ COMMANDS = {
     "/task reset": "wipe task content, return to PLANNING",
     "/clear": "clear short-term history only (profile + task untouched)",
     "/switch": "switch provider/model (all memory preserved)",
+    "/invariants show": "print active project invariants",
+    "/invariants init": "create default invariants file if absent",
     "/help": "show this help",
     "exit / quit": "quit",
 }
@@ -240,6 +259,17 @@ def run(
             if not desc:
                 console.print("[red]Usage: /run <task description>[/]\n")
                 continue
+
+            inv_text = load_invariants_text()
+            if inv_text is None:
+                console.print("[red]Invariant store missing/corrupt. Run /invariants init.[/]\n")
+                continue
+
+            reason = _static_guard_reason(desc)
+            if reason:
+                console.print(f"[red]Blocked by static rules: {reason}.[/]\n")
+                continue
+
             new_id = slug(desc)
             new_ws = WorkingStore(user, new_id)
             ctx = TaskContext(task_id=new_id, name=desc, state="PLANNING")
@@ -288,6 +318,23 @@ def run(
                 marker = "→ " if active_task and active_task.task_id == tid else "  "
                 console.print(f"[dim]{marker}[cyan]{tid}[/] ([yellow]{st.state}[/]) — {st.name}[/]")
             console.print()
+            continue
+
+        if user_input == "/invariants show":
+            txt = load_invariants_text()
+            if txt is None:
+                console.print("[yellow]No invariants file. Run /invariants init.[/]\n")
+            else:
+                console.print(txt)
+                console.print()
+            continue
+
+        if user_input == "/invariants init":
+            created = init_invariants_file()
+            if created:
+                console.print("[dim]Default invariants created.[/]\n")
+            else:
+                console.print("[yellow]Invariants file already exists.[/]\n")
             continue
 
         if user_input.startswith("/task switch "):

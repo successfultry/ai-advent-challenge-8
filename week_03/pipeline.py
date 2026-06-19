@@ -6,14 +6,20 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from week_03.agent import Agent
-from week_03.memory import ProfileStore, ShortTermStore, TaskContext, WorkingStore
+from week_03.memory import (
+    ProfileStore,
+    ShortTermStore,
+    TaskContext,
+    WorkingStore,
+    load_invariants_text,
+)
 from week_03.prompt_builder import TaskState, build_stage_system
 from week_03.state import TransitionError, next_stage, validate_transition
 from week_03.stats import TokenStats
 
 # Required keys per stage — enforces the artifact contract, not just "is JSON".
 _REQUIRED_KEYS: dict[TaskState, set[str]] = {
-    TaskState.PLANNING: {"plan", "current_step", "expected_action"},
+    TaskState.PLANNING: {"status", "reason", "plan", "current_step", "expected_action"},
     TaskState.EXECUTION: {"result", "artifacts", "current_step", "expected_action"},
     TaskState.VALIDATION: {"status", "issues", "rollback_to", "current_step", "expected_action"},
     TaskState.DONE: {"summary", "current_step", "expected_action"},
@@ -21,11 +27,6 @@ _REQUIRED_KEYS: dict[TaskState, set[str]] = {
 
 
 def _parse_artifact(raw: str, stage: TaskState) -> dict | None:
-    """Parse + validate against the stage's artifact contract.
-
-    Returns None on invalid JSON, missing required keys, or (for VALIDATION) a
-    status outside {PASS, FAIL}. None triggers the inline retry / pause path.
-    """
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, ValueError):
@@ -34,8 +35,33 @@ def _parse_artifact(raw: str, stage: TaskState) -> dict | None:
         return None
     if not _REQUIRED_KEYS[stage] <= data.keys():
         return None
-    if stage == TaskState.PLANNING and not isinstance(data.get("plan"), list):
-        return None
+    if stage == TaskState.PLANNING:
+        status = data.get("status")
+        reason = data.get("reason")
+        plan = data.get("plan")
+
+        if status not in {"ACCEPTED", "REJECTED"}:
+            return None
+        if not isinstance(reason, str):
+            return None
+        if not isinstance(plan, list):
+            return None
+
+        if status == "ACCEPTED":
+            if reason != "none":
+                return None
+            if not plan:
+                return None
+
+        if status == "REJECTED":
+            if not reason or reason == "none":
+                return None
+            if plan != []:
+                return None
+            if data.get("current_step") != "rejected":
+                return None
+            if data.get("expected_action") != "revise request":
+                return None
     if stage == TaskState.VALIDATION:
         status = str(data.get("status", "")).upper()
         rb = str(data.get("rollback_to", "")).lower()
@@ -132,11 +158,6 @@ _MAX_STAGE_RUNS = 6
 
 
 def _target_after(stage: TaskState, artifact: dict) -> TaskState | None:
-    """Deterministic next stage. Code decides — never the LLM.
-
-    VALIDATION branches on the artifact's status field (PASS -> DONE, FAIL ->
-    rollback to EXECUTION). Every other stage follows the canonical forward edge.
-    """
     if stage == TaskState.VALIDATION:
         status = str(artifact.get("status", "")).upper()
         if status == "PASS":
@@ -165,6 +186,10 @@ def run_pipeline(
     stats: TokenStats,
 ) -> None:
     runs = 0
+
+    if load_invariants_text() is None:
+        console.print("[red]Invariant store missing/corrupt. Run /invariants init.[/]\n")
+        return
 
     # Resume gate: a paused task carries `awaiting` (the next stage it stopped
     # before). The completed stage is NOT re-run; we only ask consent to advance.
@@ -213,6 +238,13 @@ def run_pipeline(
 
         artifact = _run_stage(cur, task, profile_store, provider, working_store, stats, console)
         if artifact is None:
+            return
+
+        if cur == TaskState.PLANNING and artifact.get("status") == "REJECTED":
+            reason = artifact.get("reason", "unknown")
+            task.expected_action = f"revise request: {reason}"
+            working_store.save(task)
+            console.print(f"[yellow]Task rejected by invariants: {reason}[/]\n")
             return
 
         nxt = _target_after(cur, artifact)

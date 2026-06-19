@@ -231,3 +231,46 @@ def load_active_task_id(user: str) -> str | None:
 def set_active_task_id(user: str, task_id: str | None) -> None:
     path = DATA_DIR / "active_task" / f"{user}.json"
     _atomic_write(path, {"active_task": task_id})
+
+
+_INVARIANTS_PATH = DATA_DIR / "invariants.md"
+
+_DEFAULT_INVARIANTS = """# Project Invariants
+
+## Stack Constraints
+- Use Python strictly. No Java, no Node.js, no TypeScript.
+- Prefer stdlib over third-party libraries unless explicitly required.
+
+## Architecture
+- All network calls must use timeouts.
+- No blocking I/O in hot paths.
+
+## Business Rules
+- Never delete user data without explicit confirmation.
+- Never execute destructive shell commands (rm -rf, DROP TABLE, etc.).
+
+## Security
+- No eval() or exec() on untrusted input.
+- No hard-coded credentials or secrets in code.
+"""
+
+
+def load_invariants_text() -> str | None:
+    if not _INVARIANTS_PATH.exists():
+        return None
+    try:
+        text = _INVARIANTS_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if not text.strip():
+        return None
+    if not any(line.startswith("## ") for line in text.splitlines()):
+        return None
+    return text
+
+
+def init_invariants_file() -> bool:
+    if _INVARIANTS_PATH.exists():
+        return False
+    _atomic_write_text(_INVARIANTS_PATH, _DEFAULT_INVARIANTS)
+    return True
