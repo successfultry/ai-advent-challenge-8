@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -37,17 +39,18 @@ def _unquote(s: str) -> str:
     return s
 
 
+_GUARD_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\brm\s+-[a-z]*[rf][a-z]*\b"), "destructive filesystem command"),
+    (re.compile(r"\bdrop\s+table\b"), "destructive SQL command"),
+    (re.compile(r"\bsudo\b"), "privileged shell command"),
+    (re.compile(r"\b(?:eval|exec)\s*\("), "dynamic code execution"),
+)
+
+
 def _static_guard_reason(desc: str) -> str | None:
     low = desc.lower()
-    patterns = {
-        "rm -rf": "destructive filesystem command",
-        "drop table": "destructive SQL command",
-        "sudo ": "privileged shell command",
-        "eval(": "dynamic code execution",
-        "exec(": "dynamic code execution",
-    }
-    for needle, reason in patterns.items():
-        if needle in low:
+    for pat, reason in _GUARD_PATTERNS:
+        if pat.search(low):
             return reason
     return None
 

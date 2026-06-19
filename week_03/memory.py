@@ -240,18 +240,25 @@ _DEFAULT_INVARIANTS = """# Project Invariants
 ## Stack Constraints
 - Use Python strictly. No Java, no Node.js, no TypeScript.
 - Prefer stdlib over third-party libraries unless explicitly required.
+- No web frameworks unless explicitly requested (FastAPI/Flask/Django forbidden by default).
 
 ## Architecture
-- All network calls must use timeouts.
-- No blocking I/O in hot paths.
+- Keep CLI-first architecture (no web UI scaffolding by default).
+- Separate responsibilities: CLI/UI, memory, pipeline orchestration.
+- Do not import modules across weeks.
 
-## Business Rules
-- Never delete user data without explicit confirmation.
-- Never execute destructive shell commands (rm -rf, DROP TABLE, etc.).
+## Reliability
+- All network calls must use explicit timeouts.
+- Handle obvious errors with user-facing messages (no raw traceback in normal flow).
 
 ## Security
 - No eval() or exec() on untrusted input.
-- No hard-coded credentials or secrets in code.
+- No hard-coded credentials/secrets in code.
+- No destructive shell/database commands without explicit confirmation.
+
+## Business Rules
+- Never delete user data without explicit user confirmation.
+- Refuse requests that violate invariants; explain which rule was violated.
 """
 
 

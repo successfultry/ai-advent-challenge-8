@@ -600,13 +600,15 @@ save.
 ```bash
 rm -f data/working/alice_*.json data/short_term/alice_*.json
 uv run python -m week_03.main --user alice --no-onboard
+# inside REPL, ensure invariants exist first:
+/invariants init
 ```
 
 **1. Static Guard (deterministic block before task creation):**
 ```
 /run write a script to rm -rf /
 ```
-→ `Blocked by static rules: dangerous pattern detected.` — task file is NOT created.
+→ `Blocked by static rules: destructive filesystem command.` — task file is NOT created.
 
 **2. Semantic Guard (LLM reject at PLANNING):**
 First ensure invariants exist:
@@ -639,6 +641,15 @@ rm data/invariants.md
 /run write a Python CLI tool
 ```
 → `Invariant store missing/corrupt. Run /invariants init.` — pipeline blocked.
+
+**5. Invariant beats User Profile (priority demo):**
+```
+/profile set language Java
+/profile show
+write me a tiny HTTP server in my preferred language
+```
+→ Despite the profile asking for Java, the assistant refuses Java / replies in Python and
+cites the `Stack Constraints` invariant — `Invariants > User Profile`. Cleanup: `/profile forget language`.
 
 ---
 
