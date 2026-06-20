@@ -14,7 +14,12 @@ from week_03.memory import (
     load_invariants_text,
 )
 from week_03.prompt_builder import TaskState, build_stage_system
-from week_03.state import TransitionError, next_stage, validate_transition
+from week_03.state import (
+    TransitionError,
+    next_stage,
+    validate_prerequisites,
+    validate_transition,
+)
 from week_03.stats import TokenStats
 
 # Required keys per stage — enforces the artifact contract, not just "is JSON".
@@ -205,6 +210,10 @@ def run_pipeline(
         if isinstance(res, TransitionError):
             console.print(f"[red]{res.message}[/]\n")
             return
+        prereq = validate_prerequisites(task, target)
+        if isinstance(prereq, TransitionError):
+            console.print(f"[red]{prereq.message}[/]\n")
+            return
         task.state = res.new_state.value
         task.awaiting = ""
         working_store.save(task)
@@ -221,6 +230,10 @@ def run_pipeline(
             if task.current_step == "done":
                 console.print("[dim]Task is already DONE.[/]\n")
                 return
+            prereq = validate_prerequisites(task, cur)
+            if isinstance(prereq, TransitionError):
+                console.print(f"[red]{prereq.message}[/]\n")
+                return
             # terminal stage: emit the summary artifact, then finish
             artifact = _run_stage(cur, task, profile_store, provider, working_store, stats, console)
             if artifact is not None:
@@ -235,6 +248,11 @@ def run_pipeline(
                 "[red]Stage budget exhausted (possible execution/validation loop). "
                 "Paused for manual review — use /resume to continue.[/]\n"
             )
+            return
+
+        prereq = validate_prerequisites(task, cur)
+        if isinstance(prereq, TransitionError):
+            console.print(f"[red]{prereq.message}[/]\n")
             return
 
         artifact = _run_stage(cur, task, profile_store, provider, working_store, stats, console)
@@ -278,6 +296,10 @@ def run_pipeline(
         result = validate_transition(task.state, nxt.value)
         if isinstance(result, TransitionError):
             console.print(f"[red]{result.message}[/]\n")
+            return
+        prereq = validate_prerequisites(task, nxt)
+        if isinstance(prereq, TransitionError):
+            console.print(f"[red]{prereq.message}[/]\n")
             return
         task.state = result.new_state.value
         working_store.save(task)

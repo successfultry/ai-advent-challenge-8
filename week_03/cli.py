@@ -26,7 +26,7 @@ from week_03.memory import (
 )
 from week_03.pipeline import run_pipeline
 from week_03.prompt_builder import build_system
-from week_03.state import TransitionError, validate_transition
+from week_03.state import TransitionError, validate_prerequisites, validate_transition
 from week_03.stats import TokenStats
 
 console = Console()
@@ -390,6 +390,10 @@ def run(
             if isinstance(result, TransitionError):
                 console.print(f"[red]{result.message}[/]\n")
             else:
+                prereq = validate_prerequisites(active_task, target)
+                if isinstance(prereq, TransitionError):
+                    console.print(f"[red]{prereq.message}[/]\n")
+                    continue
                 active_task.state = result.new_state.value
                 working_store.save(active_task)
                 console.print(f"[dim]Task state → [yellow]{active_task.state}[/][/]\n")

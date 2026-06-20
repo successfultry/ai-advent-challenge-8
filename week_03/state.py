@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from week_03.memory import TaskContext
 
 
 class TaskState(StrEnum):
@@ -62,3 +66,33 @@ def validate_transition(current: str, target: str) -> TransitionOk | TransitionE
     return TransitionError(
         f"Invalid: {cur.value} → {tgt.value}. Allowed from {cur.value}: {next_str}"
     )
+
+
+def _has_approved_plan(task: TaskContext) -> bool:
+    return bool(task.plan.strip())
+
+
+def _has_execution_output(task: TaskContext) -> bool:
+    return any(note.startswith("[execution]") for note in task.notes)
+
+
+def _validation_passed(task: TaskContext) -> bool:
+    return task.validation.strip().upper().startswith("STATUS=PASS")
+
+
+def validate_prerequisites(
+    task: TaskContext, target: str | TaskState
+) -> TransitionOk | TransitionError:
+    try:
+        tgt = target if isinstance(target, TaskState) else TaskState(target.upper())
+    except ValueError:
+        valid = ", ".join(s.value for s in TaskState)
+        return TransitionError(f"Unknown state {target!r}. Valid: {valid}")
+
+    if tgt == TaskState.EXECUTION and not _has_approved_plan(task):
+        return TransitionError("Cannot enter EXECUTION: plan is missing or not approved")
+    if tgt == TaskState.VALIDATION and not _has_execution_output(task):
+        return TransitionError("Cannot enter VALIDATION: execution result is missing")
+    if tgt == TaskState.DONE and not _validation_passed(task):
+        return TransitionError("Cannot enter DONE: validation did not PASS")
+    return TransitionOk(new_state=tgt)

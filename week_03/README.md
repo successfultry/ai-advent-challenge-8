@@ -653,6 +653,131 @@ cites the `Stack Constraints` invariant — `Invariants > User Profile`. Cleanup
 
 ---
 
+## Day 15 — Controlled State Transitions
+
+`validate_transition()` already enforced graph edges; Day 15 adds semantic stage-entry guards
+(`validate_prerequisites()`) in both pipeline and manual state changes.
+
+Source of truth for prerequisites (no new persisted fields):
+- approved plan: `task.plan.strip()` is non-empty
+- execution output exists: at least one note starts with `[execution]`
+- validation passed: `task.validation` starts with `status=PASS`
+
+### Demo (quick script)
+
+Preconditions:
+```bash
+rm -f data/working/alice_*.json data/short_term/alice_*.json
+uv run python -m week_03.main --user alice --no-onboard
+/invariants init
+```
+
+1) Invalid jump is blocked (FSM graph):
+```
+/task new controlled-fsm-demo
+/task status validation
+/task status done
+```
+→ Both rejected, state stays `PLANNING`:
+```
+Invalid: PLANNING → VALIDATION. Allowed from PLANNING: EXECUTION
+Invalid: PLANNING → DONE. Allowed from PLANNING: EXECUTION
+```
+
+2) No EXECUTION without approved plan (prerequisite):
+```
+/task status execution
+```
+→ Rejected: `Cannot enter EXECUTION: plan is missing or not approved`.
+
+3) No VALIDATION without execution result (prerequisite):
+```
+/task new no-validation-without-execution
+/task plan "build a tiny python cli"
+/task status execution
+/task status validation
+```
+→ Rejected: `Cannot enter VALIDATION: execution result is missing`.
+
+4) No DONE without PASS (prerequisite):
+```
+/task new no-done-without-pass
+/task plan "build a tiny python cli"
+/task note "[execution] fake execution output for demo"
+/task status execution
+/task status validation
+/task validate "status=FAIL issues=['demo failure']"
+/task status done
+```
+→ Rejected: `Cannot enter DONE: validation did not PASS`.
+
+5) Happy path still works:
+```
+/run write a Python HTTP server using stdlib only
+```
+→ PLANNING → EXECUTION → VALIDATION → DONE.
+
+6) Pause/resume stays safe:
+```
+/run write a Python CLI calculator
+# after stage completes, answer: pause
+/task show
+/resume
+```
+→ Resume validates transition + prerequisites before advancing; no stage skip.
+
+### FSM Diagram
+
+```mermaid
+stateDiagram-v2
+    [*] --> PLANNING
+    PLANNING --> EXECUTION: allowed
+    EXECUTION --> VALIDATION: allowed
+    VALIDATION --> DONE: PASS
+    VALIDATION --> EXECUTION: FAIL(code)
+    VALIDATION --> PLANNING: FAIL(plan)
+    EXECUTION --> PLANNING: rollback
+
+    DONE --> [*]
+
+    PLANNING --> VALIDATION: blocked
+    PLANNING --> DONE: blocked
+    EXECUTION --> DONE: blocked
+```
+
+### Pipeline Gate Diagram
+
+```mermaid
+flowchart TD
+    A[User action /run /resume /task status] --> B[validate_transition current->target]
+    B -->|error| X[Reject, state unchanged]
+    B -->|ok| C[validate_prerequisites for target]
+    C -->|error| X
+    C -->|ok| D[run stage agent]
+    D --> E[parse artifact contract]
+    E -->|bad| Y[Retry once or stop, no state advance]
+    E -->|ok| F[target_after plus validate_transition]
+    F --> G[persist state plus working memory]
+```
+
+### Guardrails + Lifecycle Diagram
+
+```mermaid
+flowchart LR
+    U[Request] --> SG[Static Guard]
+    SG -->|blocked| R1[Refusal, no task created]
+    SG -->|pass| P[PLANNING]
+    P --> SEM1[Semantic Guard in PLANNING]
+    SEM1 -->|REJECTED| R2[Stay in PLANNING with reason]
+    SEM1 -->|ACCEPTED| EX[EXECUTION]
+    EX --> VA[VALIDATION]
+    VA --> SEM2[Semantic checks in VALIDATION]
+    SEM2 -->|FAIL| RB[Rollback to EXECUTION or PLANNING]
+    SEM2 -->|PASS| DN[DONE]
+```
+
+---
+
 
 
 ## Progress
@@ -663,6 +788,6 @@ cites the `Stack Constraints` invariant — `Invariants > User Profile`. Cleanup
 | 12 | Personalization: structured profile, onboarding, opt-in LLM auto-capture, multi-user demo | `/profile forget/learn/onboard`, `--learn`, `--no-onboard` | `learn.py`, `prompt_builder.py`, `cli.py`, `main.py` | done | _link_ |
 | 13 | Task state machine: 4 stage-agents, deterministic FSM, artifact contracts, pause/resume, auto mode | `/run`, `/resume`, `/auto on\|off`, `--auto` | `pipeline.py`, `state.py`, `prompt_builder.py`, `memory.py`, `cli.py`, `main.py` | done | _link_ |
 | 14 | Hybrid guardrails: static + semantic invariants, refusal with explanation | `/invariants init/show`, `/run` (blocked on violation) | `memory.py`, `cli.py`, `prompt_builder.py`, `pipeline.py` | done | _link_ |
-| 15 | — | — | — | — | — |
+| 15 | Controlled state transitions: graph + prerequisite gates + no stage skipping | `/task status`, `/run`, `/resume` | `state.py`, `pipeline.py`, `cli.py`, `README.md` | done | _link_ |
 
 All days share one codebase; the table maps each day to its commands and the modules that implement them.
