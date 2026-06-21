@@ -181,6 +181,21 @@ def _ask(console: Console, prompt_text: str) -> str | None:
         return None
 
 
+def _ask_stage_action(
+    console: Console, prompt_text: str, *, allowed: set[str], default: str = "ok"
+) -> str | None:
+    while True:
+        ans = _ask(console, prompt_text)
+        if ans is None:
+            return None
+        if not ans:
+            ans = default
+        if ans in allowed:
+            return ans
+        options = ", ".join(sorted(allowed))
+        console.print(f"[yellow]Enter {options}.[/]")
+
+
 def run_pipeline(
     task: TaskContext,
     profile_store: ProfileStore,
@@ -202,7 +217,11 @@ def run_pipeline(
     if task.awaiting:
         target = task.awaiting
         if not auto:
-            ans = _ask(console, f"[green]Resume: proceed to {target}?[/] [ok/abort]")
+            ans = _ask_stage_action(
+                console,
+                f"[green]Resume: proceed to {target}?[/] [ok/abort]",
+                allowed={"ok", "abort"},
+            )
             if ans != "ok":
                 console.print(f"[dim]Still paused after {task.state}. /resume later.[/]\n")
                 return
@@ -274,9 +293,10 @@ def run_pipeline(
             console.print(f"[yellow]Validation FAILED — rolling back to {nxt.value}.[/]")
 
         if not auto:
-            ans = _ask(
+            ans = _ask_stage_action(
                 console,
                 f"[green]Stage {cur.value} done. Proceed to {nxt.value}?[/] [ok/pause/abort]",
+                allowed={"ok", "pause", "abort"},
             )
             if ans == "abort":
                 # abort does NOT advance and does NOT queue: state stays on cur

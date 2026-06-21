@@ -717,7 +717,36 @@ Invalid: PLANNING → DONE. Allowed from PLANNING: EXECUTION
 ```
 → PLANNING → EXECUTION → VALIDATION → DONE.
 
-6) Pause/resume stays safe:
+6) Rollback examples (same edges as automatic rollback path):
+
+Automatic rollback in pipeline is driven by VALIDATION artifact:
+- `status=FAIL, rollback_to=execution` => `VALIDATION -> EXECUTION`
+- `status=FAIL, rollback_to=planning` => `VALIDATION -> PLANNING`
+
+Deterministic manual demos of the same allowed rollback edges:
+```
+/task new rollback-execution
+/task plan "build x"
+/task note "[execution] wrong implementation"
+/task status execution
+/task status validation
+/task validate "status=FAIL issues=['bad implementation']"
+/task status execution
+```
+→ `Task state → EXECUTION`
+
+```
+/task new rollback-planning
+/task plan "bad plan"
+/task note "[execution] output from bad plan"
+/task status execution
+/task status validation
+/task validate "status=FAIL issues=['plan is wrong']"
+/task status planning
+```
+→ `Task state → PLANNING`
+
+7) Pause/resume stays safe:
 ```
 /run write a Python CLI calculator
 # after stage completes, answer: pause
@@ -725,6 +754,44 @@ Invalid: PLANNING → DONE. Allowed from PLANNING: EXECUTION
 /resume
 ```
 → Resume validates transition + prerequisites before advancing; no stage skip.
+
+### Optional chaos test — pipeline guard
+
+Manually corrupt working memory to simulate a bad resume target:
+1. Create active task in REPL:
+   ```
+   /task new chaos-pipeline
+   ```
+2. In another shell (project root):
+   ```bash
+   python - <<'PY'
+   import json
+
+   p = "data/working/alice_chaos-pipeline.json"
+   with open(p, encoding="utf-8") as f:
+       d = json.load(f)
+
+   d["state"] = "VALIDATION"
+   d["plan"] = "fake approved plan"
+   d["notes"] = []
+
+   with open(p, "w", encoding="utf-8") as f:
+       json.dump(d, f, ensure_ascii=False, indent=2)
+
+   print(p)
+   PY
+   ```
+3. Back in REPL:
+   ```text
+   /task show
+   /resume
+   ```
+4. Expected:
+   ```text
+   Cannot enter VALIDATION: execution result is missing
+   ```
+
+This tests the pipeline path, not `/task status`: `/resume` runs `run_pipeline()` on a corrupted persisted task.
 
 ### FSM Diagram
 
