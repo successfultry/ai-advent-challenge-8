@@ -723,12 +723,12 @@ Automatic rollback in pipeline is driven by VALIDATION artifact:
 - `status=FAIL, rollback_to=execution` => `VALIDATION -> EXECUTION`
 - `status=FAIL, rollback_to=planning` => `VALIDATION -> PLANNING`
 
-Deterministic manual demos of the same allowed rollback edges:
+For video reliability, use deterministic manual demos of the same rollback edges:
 ```
 /task new rollback-execution
 /task plan "build x"
-/task note "[execution] wrong implementation"
 /task status execution
+/task note "[execution] wrong implementation"
 /task status validation
 /task validate "status=FAIL issues=['bad implementation']"
 /task status execution
@@ -738,13 +738,22 @@ Deterministic manual demos of the same allowed rollback edges:
 ```
 /task new rollback-planning
 /task plan "bad plan"
-/task note "[execution] output from bad plan"
 /task status execution
+/task note "[execution] output from bad plan"
 /task status validation
 /task validate "status=FAIL issues=['plan is wrong']"
 /task status planning
 ```
 → `Task state → PLANNING`
+
+Optional auto-rollback attempt (model-dependent, can be flaky):
+```
+/auto on
+/run write a Python function dedupe(items) that removes duplicates while preserving original order
+```
+On weaker models, VALIDATION may return `FAIL` and pipeline prints:
+`Validation FAILED — rolling back to EXECUTION` (or `...to PLANNING` if `rollback_to=planning`).
+If it passes on first try, keep the deterministic manual rollback demo above as the canonical proof.
 
 7) Pause/resume stays safe:
 ```
