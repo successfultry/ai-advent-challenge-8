@@ -58,7 +58,7 @@ uv add "mcp[cli]"
 5. Enter args as JSON (`{}` by default)
 6. Client calls `session.call_tool(...)` and prints response blocks
 
-## Example calls (real output)
+## Example calls
 
 ### own -> list_files
 Args: `{}` (or `{"path": "."}`)
@@ -85,8 +85,19 @@ Args: `{"timezone": "UTC"}`
 }
 ```
 
-### remote -> ask_question
-Args: `{"repoName": "facebook/react", "question": "What is the entry point?"}`
+### remote -> read_wiki_structure
+Args: `{"repoName": "facebook/react"}` (fast; `ask_question` works too but is slow + LLM-generated)
+```
+Available pages for facebook/react:
+
+- 1 React Repository Overview
+  - 1.1 Repository Structure and Packages
+  - 1.2 Feature Flags System
+- 2 Core Reconciler Architecture
+  - 2.1 Fiber Work Loop and Scheduling
+  ...
+- 8 Glossary
+```
 
 ## Troubleshooting
 
