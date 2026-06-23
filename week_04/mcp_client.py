@@ -1,8 +1,11 @@
 import asyncio
 import json
+import socket
+import subprocess
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import urlparse
 
 from mcp import ClientSession
 from mcp.client.stdio import stdio_client
@@ -12,6 +15,17 @@ from mcp.types import TextContent
 from week_04.targets import Target
 
 TIMEOUT = 60
+
+
+async def _wait_port(host: str, port: int, timeout: float = 15.0) -> None:
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                return
+        except OSError:
+            await asyncio.sleep(0.2)
+    raise RuntimeError(f"local server did not open {host}:{port} within {timeout}s")
 
 
 @asynccontextmanager
@@ -25,11 +39,20 @@ async def _connect(target: Target) -> AsyncIterator[tuple[Any, Any]]:
 
     if target.url is None:
         raise ValueError("http target must define url")
+
+    proc: subprocess.Popen[bytes] | None = None
+    if target.spawn is not None:
+        proc = subprocess.Popen(target.spawn)
+        parsed = urlparse(target.url)
+        await _wait_port(parsed.hostname or "127.0.0.1", parsed.port or 80)
     try:
         async with streamablehttp_client(target.url) as (read, write, _):
             yield read, write
     except Exception as exc:
-        raise RuntimeError(f"remote MCP endpoint unreachable: {target.url}") from exc
+        raise RuntimeError(f"HTTP MCP endpoint unreachable: {target.url}") from exc
+    finally:
+        if proc is not None:
+            proc.terminate()
 
 
 def _print_tools(tools: list[Any]) -> None:

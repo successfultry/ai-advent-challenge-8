@@ -5,7 +5,7 @@ from typing import Literal
 
 from mcp import StdioServerParameters
 
-REMOTE_URL = "https://everything.mcp.inevitable.fyi/mcp"
+LOCAL_HTTP_URL = "http://127.0.0.1:8000/mcp"
 
 
 @dataclass(frozen=True)
@@ -14,6 +14,7 @@ class Target:
     kind: Literal["stdio", "http"]
     params: StdioServerParameters | None = None
     url: str | None = None
+    spawn: list[str] | None = None
 
 
 def own() -> Target:
@@ -35,12 +36,13 @@ def time() -> Target:
     )
 
 
-def remote() -> Target:
+def local_http() -> Target:
     return Target(
-        label=f"public remote MCP endpoint ({REMOTE_URL})",
+        label=f"own server over local HTTP ({LOCAL_HTTP_URL})",
         kind="http",
-        url=REMOTE_URL,
+        url=LOCAL_HTTP_URL,
+        spawn=[sys.executable, "-m", "week_04.mcp_server", "--http"],
     )
 
 
-TARGETS = {"own": own, "time": time, "remote": remote}
+TARGETS = {"own": own, "time": time, "local_http": local_http}
