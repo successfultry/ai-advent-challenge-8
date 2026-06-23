@@ -1,4 +1,3 @@
-import argparse
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -47,7 +46,4 @@ def write_file(path: str, content: str) -> str:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--http", action="store_true")
-    args = parser.parse_args()
-    mcp.run(transport="streamable-http" if args.http else "stdio")
+    mcp.run(transport="stdio")

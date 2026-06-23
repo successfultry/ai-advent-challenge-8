@@ -5,9 +5,9 @@
 ```
 week_04/
 ├── main.py        # thin entrypoint: parse --target and run interactive client
-├── mcp_client.py  # shared ClientSession flow + stdio/http transport adapter + call_tool loop
-├── mcp_server.py  # baseline FastMCP server with 3 filesystem tools (stdio or --http)
-└── targets.py     # target registry (own, time, local_http)
+├── mcp_client.py  # ClientSession flow over stdio/http + interactive call_tool loop
+├── mcp_server.py  # baseline FastMCP server with 3 filesystem tools (stdio)
+└── targets.py     # target registry (own, time, remote)
 ```
 
 No `__init__.py` in `week_04/` (PEP 420 namespace package), same run style as week_02/week_03:
@@ -20,31 +20,25 @@ also adds an interactive `call_tool` loop so tools can be invoked from one CLI.
 
 ## Targets
 
-`ClientSession` is identical for every target; only the transport differs:
-- `stdio` transport: server runs as a local subprocess over pipes (`own`, `time`)
-- `http` transport: client talks streamable HTTP over TCP (`local_http`)
+All targets use the same `ClientSession`; the difference is transport + whose server it is:
 
-| Target | Transport | Server | External |
-|--------|-----------|--------|----------|
-| `own` (default) | stdio | `python -m week_04.mcp_server` | no |
-| `time` | stdio | `uvx mcp-server-time` | yes |
-| `local_http` | http | `python -m week_04.mcp_server --http` (auto-spawned on 127.0.0.1:8000) | no |
-
-`local_http` exercises the same streamable-HTTP transport as a public remote endpoint would,
-but reliably: `main` auto-spawns the server in `--http` mode, waits for the port, connects over
-`http://127.0.0.1:8000/mcp`, then shuts it down. One command, real HTTP (not stdio).
+| Target | Server | Transport | Whose | Requires |
+|--------|--------|-----------|-------|----------|
+| `own` (default) | `python -m week_04.mcp_server` (week04-fs, 3 file tools) | stdio | ours | Python only |
+| `time` | `uvx mcp-server-time` | stdio | external (Anthropic) | uvx (ships with uv) |
+| `remote` | `https://mcp.deepwiki.com/mcp` (DeepWiki, 3 tools) | Streamable HTTP | external (Devin) | network |
 
 ## Run
 
 ```bash
-# Baseline local server over stdio (always available)
+# Our own MCP server (stdio)
 uv run python -m week_04.main --target own
 
-# External MCP server via uvx, stdio (no Node)
+# External MCP server via uvx (stdio, no Node)
 uv run python -m week_04.main --target time
 
-# Own server over real HTTP transport, single command (no external host)
-uv run python -m week_04.main --target local_http
+# External remote MCP over HTTP (DeepWiki)
+uv run python -m week_04.main --target remote
 ```
 
 First-time setup:
@@ -66,7 +60,7 @@ uv add "mcp[cli]"
 
 ## Example calls (real output)
 
-### own / local_http -> list_files
+### own -> list_files
 Args: `{}` (or `{"path": "."}`)
 ```
 D __pycache__
@@ -77,7 +71,7 @@ F mcp_server.py
 F targets.py
 ```
 
-### own / local_http -> read_file
+### own -> read_file
 Args: `{"path": "README.md"}`  (note: `{}` fails because `path` is required)
 
 ### time -> get_current_time
@@ -91,30 +85,24 @@ Args: `{"timezone": "UTC"}`
 }
 ```
 
+### remote -> ask_question
+Args: `{"repoName": "facebook/react", "question": "What is the entry point?"}`
+
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
 | `uvx not found` | install/update uv; `uvx` ships with uv |
 | timeout on first `time` run | first `uvx` run downloads the package, retry (timeout is 60s) |
-| `local server did not open ...` | port 8000 busy or server failed to start; free the port and retry |
 | invalid JSON args | input must be a JSON object, e.g. `{}` or `{"path": "."}` |
-
-### Public remote endpoints (why they were dropped)
-
-Public streamable-HTTP test servers (`*.inevitable.fyi`) were tried but their TLS handshake fails
-from this machine: `SSL: UNEXPECTED_EOF_WHILE_READING` (the peer drops the handshake after TCP
-connects). `curl` (schannel) and Python (OpenSSL) both fail, while `google.com`/`pypi.org` work —
-so it is the remote host or a network/DPI filter, not this code, and it is not fixable client-side.
-`local_http` demonstrates the HTTP transport without depending on a flaky external host. This may
-be specific to this network/ISP; the endpoint can also simply be down for everyone.
+| `remote` unreachable | check network; the endpoint is a public server and may be down |
 
 ## Demo script
 
 ```bash
-uv run python -m week_04.main --target own         # stdio, own server
-uv run python -m week_04.main --target time        # stdio, external (uvx)
-uv run python -m week_04.main --target local_http  # http transport, single command
+uv run python -m week_04.main --target own     # our own MCP, stdio
+uv run python -m week_04.main --target time    # external MCP (uvx), stdio
+uv run python -m week_04.main --target remote  # external MCP (DeepWiki), HTTP
 ```
 
 For each run:
@@ -128,6 +116,6 @@ For each run:
 
 | Day | Task | Commands | Code | Status | Video |
 |-----|------|----------|------|--------|-------|
-| 16 | MCP connection + interactive tool calls; one shared `ClientSession` across stdio and real HTTP transports (`own`, `time`, `local_http`) | `-m week_04.main`, `--target own\|time\|local_http` | `mcp_server.py`, `mcp_client.py`, `targets.py`, `main.py` | done | _link_ |
+| 16 | MCP connection + interactive tool calls; one shared `ClientSession` over stdio + Streamable HTTP against our own, external stdio, and external remote servers (`own`, `time`, `remote`) | `-m week_04.main`, `--target own\|time\|remote` | `mcp_server.py`, `mcp_client.py`, `targets.py`, `main.py` | done | _link_ |
 
 All days share one codebase; the table maps each day to its commands and modules.

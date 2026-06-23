@@ -5,7 +5,7 @@ from typing import Literal
 
 from mcp import StdioServerParameters
 
-LOCAL_HTTP_URL = "http://127.0.0.1:8000/mcp"
+REMOTE_URL = "https://mcp.deepwiki.com/mcp"
 
 
 @dataclass(frozen=True)
@@ -14,7 +14,6 @@ class Target:
     kind: Literal["stdio", "http"]
     params: StdioServerParameters | None = None
     url: str | None = None
-    spawn: list[str] | None = None
 
 
 def own() -> Target:
@@ -36,13 +35,12 @@ def time() -> Target:
     )
 
 
-def local_http() -> Target:
+def remote() -> Target:
     return Target(
-        label=f"own server over local HTTP ({LOCAL_HTTP_URL})",
+        label=f"DeepWiki remote MCP over Streamable HTTP ({REMOTE_URL})",
         kind="http",
-        url=LOCAL_HTTP_URL,
-        spawn=[sys.executable, "-m", "week_04.mcp_server", "--http"],
+        url=REMOTE_URL,
     )
 
 
-TARGETS = {"own": own, "time": time, "local_http": local_http}
+TARGETS = {"own": own, "time": time, "remote": remote}
