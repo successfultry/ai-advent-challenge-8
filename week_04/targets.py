@@ -43,4 +43,14 @@ def remote() -> Target:
     )
 
 
-TARGETS = {"own": own, "time": time, "remote": remote}
+def api() -> Target:
+    return Target(
+        label="Day 17 API tools server (JSONPlaceholder + Open-Meteo)",
+        kind="stdio",
+        params=StdioServerParameters(
+            command=sys.executable, args=["-m", "week_04.mcp_server_api"]
+        ),
+    )
+
+
+TARGETS = {"own": own, "time": time, "remote": remote, "api": api}
