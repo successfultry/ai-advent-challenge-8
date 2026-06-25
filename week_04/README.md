@@ -210,13 +210,28 @@ interval, and the watcher runs the agent loop on its own interval.
 | `build_summary(window="all", top_n=10)` | Aggregate latest/history, persist summary, return JSON |
 | `latest_summary()` | Return the latest persisted summary |
 
+`collect_now` writes (HTTP to Manifold + INSERT), `latest_markets`/`latest_summary`
+only read from SQLite. The LLM never calls tools: the watcher loop calls them
+deterministically and the LLM only phrases the resulting aggregate JSON.
+
+### Notes
+
+- Only `BINARY` markets are tracked; `MULTIPLE_CHOICE` are skipped. `limit` counts
+  binary markets, each stored as two rows (`Yes`/`No`), so `limit=10` = 20 snapshots.
+- Markets come from `/v0/markets` (newest 100), then sorted by volume locally —
+  "top by volume among recent", not globally hottest markets.
+- `volume` is Manifold mana (M$); `volume24Hours` is preferred when present.
+- `top_movers` is empty until a series has at least two snapshots in the window.
+- Two independent timers: server collector (`MARKET_WATCH_INTERVAL_S`) vs watcher
+  agent loop (`--interval`).
+
 ### Env vars
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `MANIFOLD_API_URL` | `https://api.manifold.markets` | Manifold API base URL override |
 | `MARKET_WATCH_INTERVAL_S` | `60` | server-side collector interval |
-| `MARKET_WATCH_LIMIT` | `10` | markets fetched per collection |
+| `MARKET_WATCH_LIMIT` | `10` | binary markets kept per collection (each → Yes/No, so 10 = 20 snapshots) |
 | `MARKET_WATCH_DB` | `week_04/market_watch.db` | SQLite runtime DB path |
 
 ### Run (bash)
@@ -252,6 +267,18 @@ uv run pytest week_04/test_market_watch.py -q
 
 `test_market_watch.py` covers pure aggregation, Manifold response parsing, and SQLite
 storage using temporary databases. It does not call the network, LLM, or stdio MCP server.
+
+### Inspect the database
+
+```bash
+uv run python -c "import sqlite3; db=sqlite3.connect('week_04/market_watch.db'); db.row_factory=sqlite3.Row; [print(dict(r)) for r in db.execute('SELECT * FROM snapshots ORDER BY id DESC LIMIT 10')]"
+```
+
+Clear runtime data before a fresh live demo (also removes WAL files):
+
+```powershell
+Remove-Item week_04/market_watch.db*
+```
 
 ### Troubleshooting
 

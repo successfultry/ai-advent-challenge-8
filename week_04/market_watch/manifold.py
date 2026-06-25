@@ -27,8 +27,15 @@ class ManifoldClient:
         params = {"limit": str(max(limit * 5, 100))}
         markets = await self._get_markets(params)
         quotes: list[MarketQuote] = []
-        for market in sorted(markets, key=_sort_volume, reverse=True)[:limit]:
-            quotes.extend(_quotes_from_market(market))
+        binary_markets = 0
+        for market in sorted(markets, key=_sort_volume, reverse=True):
+            market_quotes = _quotes_from_market(market)
+            if not market_quotes:
+                continue
+            quotes.extend(market_quotes)
+            binary_markets += 1
+            if binary_markets >= limit:
+                break
         return quotes
 
     async def close(self) -> None:
