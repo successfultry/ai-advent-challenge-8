@@ -5,6 +5,8 @@ description = "Submissions for AI Advent Challenge #8 (Python-first, 7 weeks)."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aiosqlite>=0.22.1",
+    "httpx>=0.28.1",
     "mcp[cli]>=1.28.0",
     "openai>=2.40.0",
     "python-dotenv>=1.2.2",

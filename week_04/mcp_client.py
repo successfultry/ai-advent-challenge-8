@@ -15,13 +15,17 @@ TIMEOUT = 60
 
 
 @asynccontextmanager
-async def _connect(target: Target) -> AsyncIterator[tuple[Any, Any]]:
+async def connect(target: Target) -> AsyncIterator[tuple[Any, Any]]:
     if target.kind == "stdio":
         async with stdio_client(target.params) as (read, write):
             yield read, write
         return
     async with streamablehttp_client(target.url) as (read, write, _):
         yield read, write
+
+
+def tool_text(result: Any) -> str:
+    return "\n".join(block.text for block in result.content if isinstance(block, TextContent))
 
 
 def _print_tools(tools: list[Any]) -> None:
@@ -82,7 +86,7 @@ async def _repl(session: ClientSession, tools: list[Any]) -> None:
 
 async def interact(target: Target) -> None:
     print(f"Target: {target.label}", flush=True)
-    async with _connect(target) as (read, write):
+    async with connect(target) as (read, write):
         async with ClientSession(read, write) as session:
             async with asyncio.timeout(TIMEOUT):
                 init = await session.initialize()

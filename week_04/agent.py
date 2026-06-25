@@ -2,10 +2,9 @@ import json
 from typing import Any
 
 from mcp import ClientSession
-from mcp.types import TextContent
 
 from shared.client import get_client
-from week_04.mcp_client import _connect
+from week_04.mcp_client import connect, tool_text
 from week_04.targets import Target
 
 _SYSTEM = (
@@ -36,7 +35,7 @@ async def run_agent(target: Target, provider: str, question: str) -> None:
     client, model = get_client(provider)
     print(f"Target: {target.label}")
     print(f"Provider: {provider} ({model})")
-    async with _connect(target) as (read, write):
+    async with connect(target) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             tools = (await session.list_tools()).tools
@@ -63,9 +62,7 @@ async def run_agent(target: Target, provider: str, question: str) -> None:
                     args = json.loads(tc.function.arguments or "{}")
                     print(f"  -> call {tc.function.name}({args})")
                     result = await session.call_tool(tc.function.name, arguments=args)
-                    text = "\n".join(
-                        b.text for b in result.content if isinstance(b, TextContent)
-                    )
+                    text = tool_text(result)
                     short = text if len(text) <= 200 else f"{text[:200]}..."
                     print(f"  <- {short}")
                     messages.append(

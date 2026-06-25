@@ -53,4 +53,20 @@ def api() -> Target:
     )
 
 
-TARGETS = {"own": own, "time": time, "remote": remote, "api": api}
+def market_watch() -> Target:
+    return Target(
+        label="Day 18 Market Watch MCP server (Manifold)",
+        kind="stdio",
+        params=StdioServerParameters(
+            command=sys.executable, args=["-m", "week_04.market_watch.server"]
+        ),
+    )
+
+
+TARGETS = {
+    "own": own,
+    "time": time,
+    "remote": remote,
+    "api": api,
+    "market_watch": market_watch,
+}

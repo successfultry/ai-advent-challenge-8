@@ -9,8 +9,10 @@ week_04/
 ├── agent.py                # LLM agent that can call MCP tools and use outputs
 ├── mcp_server.py           # Day 16: local filesystem MCP server
 ├── mcp_server_api.py       # Day 17: MCP server wrapping external HTTP APIs
-├── targets.py              # target registry (own, time, remote, api)
-└── test_mcp_server_api.py  # pytest checks for Day 17 API server
+├── market_watch/           # Day 18: scheduler + SQLite + market-summary agent
+├── targets.py              # target registry (own, time, remote, api, market_watch)
+├── test_mcp_server_api.py  # pytest checks for Day 17 API server
+└── test_market_watch.py    # pytest checks for Day 18 market watch
 ```
 
 No `__init__.py` in `week_04/` (PEP 420 namespace package), same run style as week_02/week_03:
@@ -24,6 +26,7 @@ No `__init__.py` in `week_04/` (PEP 420 namespace package), same run style as we
 | `time` | `uvx mcp-server-time` | stdio | external (Anthropic) | uvx |
 | `remote` | `https://mcp.deepwiki.com/mcp` (DeepWiki, 3 tools) | Streamable HTTP | external (Devin) | network |
 | `api` | `python -m week_04.mcp_server_api` (4 tools over JSONPlaceholder + Open-Meteo) | stdio | ours | network |
+| `market_watch` | `python -m week_04.market_watch.server` (Manifold watch tools) | stdio | ours | network |
 
 ## Base setup
 
@@ -173,6 +176,79 @@ Expected line:
 
 ---
 
+## Day 18 — Market Watch scheduler + 24/7 agent
+
+### Goal
+
+Build an MCP tool with scheduled/periodic execution, SQLite storage, aggregation, and a
+24/7 agent that periodically emits a market summary.
+
+### Architecture
+
+Day 18 uses a FastMCP service + adapter pattern:
+
+- `server.py` is the FastMCP adapter. It exposes thin tools and owns the server-side
+  background collector loop.
+- `store.py` is the SQLite storage layer.
+- `manifold.py` is the public Manifold Markets API adapter.
+- `aggregate.py` is pure aggregation/statistics.
+- `watcher.py` is the agent-side 24/7 loop. It keeps one MCP session open, periodically
+  calls tools, and optionally asks an LLM to phrase the summary.
+
+The "both schedulers" decision is intentional: the server collects data on its own
+interval, and the watcher runs the agent loop on its own interval.
+
+### Day 18 tools (`--target market_watch`)
+
+| Tool | Purpose |
+|------|---------|
+| `collect_now()` | Fetch active Manifold quotes and store snapshots immediately |
+| `latest_markets()` | Return the latest stored snapshot per `(market_id, outcome)` |
+| `build_summary(window="all", top_n=10)` | Aggregate latest/history, persist summary, return JSON |
+| `latest_summary()` | Return the latest persisted summary |
+
+### Env vars
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MANIFOLD_API_URL` | `https://api.manifold.markets` | Manifold API base URL override |
+| `MARKET_WATCH_INTERVAL_S` | `60` | server-side collector interval |
+| `MARKET_WATCH_LIMIT` | `10` | markets fetched per collection |
+| `MARKET_WATCH_DB` | `week_04/market_watch.db` | SQLite runtime DB path |
+
+### Run (bash)
+
+```bash
+# offline-safe demo: no tokens, survives DNS/network errors
+uv run python -m week_04.market_watch.watcher --cycles 1 --interval 1 --no-llm
+
+# live 24/7 agent loop with LLM phrasing
+uv run python -m week_04.market_watch.watcher --interval 60 --window 1h
+```
+
+Expected offline-safe behavior:
+
+- watcher connects to the `market-watch` MCP server
+- `collect_now` fetches live Manifold binary markets when the network is available
+- `build_summary` still returns a deterministic summary
+- process exits cleanly after one cycle when `--cycles 1` is used
+
+### Tests
+
+```bash
+uv run pytest week_04/test_market_watch.py -q
+```
+
+`test_market_watch.py` covers pure aggregation, Manifold response parsing, and SQLite
+storage using temporary databases. It does not call the network, LLM, or stdio MCP server.
+
+### Troubleshooting
+
+Manifold uses a public JSON API at `https://api.manifold.markets` and does not require auth.
+If it is temporarily unreachable, the collector logs failures and keeps running.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -182,6 +258,7 @@ Expected line:
 | invalid JSON args in REPL | input must be JSON object, e.g. `{}` or `{"post_id": 1}` |
 | `remote` unreachable | public endpoint may be down; retry later or use `own`/`api` |
 | `--agent` fails with missing key | set provider key in `.env` (`OPENAI_API_KEY`, etc.) |
+| `market_watch` returns 0 markets | check Manifold/network availability, or use the offline-safe watcher demo |
 
 ---
 
@@ -191,5 +268,6 @@ Expected line:
 |-----|------|----------|------|--------|-------|
 | 16 | MCP connection + interactive tool calls over stdio/http targets (`own`, `time`, `remote`) | `-m week_04.main`, `--target own\|time\|remote` | `mcp_server.py`, `mcp_client.py`, `targets.py`, `main.py` | done | _link_ |
 | 17 | Own API-wrapping MCP server (`api`) + LLM agent that calls tools and uses results | `-m week_04.main --target api`, `--agent --ask "..."`, `pytest week_04 -q` | `mcp_server_api.py`, `agent.py`, `targets.py`, `main.py`, `test_mcp_server_api.py` | done | _link_ |
+| 18 | Market Watch MCP server with scheduled collection, SQLite aggregation, and 24/7 watcher agent | `-m week_04.market_watch.watcher --cycles 1 --no-llm`, `pytest week_04/test_market_watch.py -q` | `market_watch/`, `targets.py`, `test_market_watch.py` | done | _link_ |
 
 All days share one codebase; this table maps each day to commands and modules.

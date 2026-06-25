@@ -21,6 +21,9 @@ env/
 .ruff_cache/
 .mypy_cache/
 .ipynb_checkpoints/
+week_04/*.db
+week_04/*.db-shm
+week_04/*.db-wal
 
 # --- uv ---
 # lockfile is kept; nothing to ignore by default
