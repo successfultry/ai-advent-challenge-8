@@ -212,7 +212,8 @@ interval, and the watcher runs the agent loop on its own interval.
 
 `collect_now` writes (HTTP to Manifold + INSERT), `latest_markets`/`latest_summary`
 only read from SQLite. The LLM never calls tools: the watcher loop calls them
-deterministically and the LLM only phrases the resulting aggregate JSON.
+deterministically and the LLM receives aggregate JSON, returns strict JSON content,
+and code renders the final Telegram layout (emoji + HTML).
 
 ### Notes
 
@@ -230,9 +231,18 @@ deterministically and the LLM only phrases the resulting aggregate JSON.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `MANIFOLD_API_URL` | `https://api.manifold.markets` | Manifold API base URL override |
-| `MARKET_WATCH_INTERVAL_S` | `60` | server-side collector interval |
-| `MARKET_WATCH_LIMIT` | `10` | binary markets kept per collection (each → Yes/No, so 10 = 20 snapshots) |
+| `MARKET_WATCH_INTERVAL_S` | `10` | server-side collector interval |
+| `MARKET_WATCH_LIMIT` | `20` | binary markets kept per collection (each → Yes/No, so 20 = 40 snapshots) |
 | `MARKET_WATCH_DB` | `week_04/market_watch.db` | SQLite runtime DB path |
+| `TELEGRAM_BOT_TOKEN` | unset | optional Telegram bot token for watcher push |
+| `TELEGRAM_CHAT_ID` | unset | optional Telegram chat or channel id |
+
+Recommended production overrides:
+
+```bash
+MARKET_WATCH_INTERVAL_S=3600
+MARKET_WATCH_LIMIT=20
+```
 
 ### Run (bash)
 
@@ -242,7 +252,14 @@ uv run python -m week_04.market_watch.watcher --cycles 1 --interval 1 --no-llm
 
 # live 24/7 agent loop with EN+RU LLM phrasing
 uv run python -m week_04.market_watch.watcher --interval 60 --window 1h --lang both
+
+# production profile: report twice per day, movers over last 12h
+uv run python -m week_04.market_watch.watcher --provider "DeepSeek V3" --interval 43200 --window 12h --lang both
 ```
+
+Telegram push is optional. If `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set,
+the watcher sends each generated summary to Telegram after printing it locally.
+The LLM remains mandatory on the default path; Telegram formatting is deterministic code.
 
 Useful watcher flags:
 
@@ -271,7 +288,7 @@ storage using temporary databases. It does not call the network, LLM, or stdio M
 ### Inspect the database
 
 ```bash
-uv run python -c "import sqlite3; db=sqlite3.connect('week_04/market_watch.db'); db.row_factory=sqlite3.Row; [print(dict(r)) for r in db.execute('SELECT * FROM snapshots ORDER BY id DESC LIMIT 10')]"
+uv run python -c "import sqlite3; db=sqlite3.connect('week_04/market_watch.db'); db.row_factory=sqlite3.Row; [print(dict(r)) for r in db.execute('SELECT * FROM snapshots ORDER BY volume DESC LIMIT 20')]"
 ```
 
 Clear runtime data before a fresh live demo (also removes WAL files):
@@ -284,6 +301,41 @@ Remove-Item week_04/market_watch.db*
 
 Manifold uses a public JSON API at `https://api.manifold.markets` and does not require auth.
 If it is temporarily unreachable, the collector logs failures and keeps running.
+
+### Docker (local)
+
+```bash
+docker build -t market-watch .
+docker run --rm --env-file .env market-watch
+```
+
+The image runs the watcher with:
+
+```bash
+uv run python -m week_04.market_watch.watcher --provider "DeepSeek V3" --interval 60 --window 12h --lang both
+```
+
+Override command if needed:
+
+```bash
+docker run --rm --env-file .env market-watch uv run python -m week_04.market_watch.watcher --cycles 1 --interval 1 --no-llm
+```
+
+### Railway (worker deploy)
+
+1. Create a new Railway project from this GitHub repo.
+2. Add environment variables from `.env`:
+   - `OPENAI_API_KEY` (or your chosen provider key)
+   - `MANIFOLD_API_URL` (optional override)
+   - `MARKET_WATCH_INTERVAL_S`, `MARKET_WATCH_LIMIT`, `MARKET_WATCH_DB`
+   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (optional)
+3. Set start command:
+
+```bash
+uv run python -m week_04.market_watch.watcher --provider "DeepSeek V3" --interval 43200 --window 12h --lang both
+```
+
+4. Deploy as a worker service (no public HTTP port required).
 
 ---
 

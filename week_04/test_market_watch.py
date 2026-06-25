@@ -2,7 +2,9 @@ from datetime import UTC, datetime
 
 from week_04.market_watch.aggregate import since_for_window, summarize_snapshots
 from week_04.market_watch.manifold import _quotes_from_market
+from week_04.market_watch.notify import render_telegram_message
 from week_04.market_watch.store import MarketStore, Run, Snapshot, Summary
+from week_04.market_watch.watcher import _validate_payload
 
 
 def _snapshot(
@@ -146,3 +148,57 @@ async def test_market_store_round_trip(tmp_path):
     assert summary_id == 1
     assert summary is not None
     assert summary.text == "test summary"
+
+
+def test_validate_payload_accepts_valid_ru_payload():
+    payload = {
+        "headline": "20 рынков за 12h",
+        "top_markets": ["Будет ли X? - Да 60% (1000.0)"],
+        "top_movers": ["Будет ли X? - Да 50% -> 60% (delta +10.0 pts)"],
+        "insight": "Рынок стабилен.",
+    }
+    assert _validate_payload(payload, "ru")
+
+
+def test_validate_payload_rejects_ru_with_english_labels():
+    payload = {
+        "headline": "20 markets in 12h",
+        "top_markets": ["Top markets: Will X? - Yes 60% (1000.0)"],
+        "top_movers": ["Top movers: Will X? - Yes 50% -> 60% (delta +10.0 pts)"],
+        "insight": "Market watch summary.",
+    }
+    assert not _validate_payload(payload, "ru")
+
+
+def test_render_telegram_message_ru_and_escape():
+    payload = {
+        "headline": "20 рынков за 12h",
+        "top_markets": ["Будет ли <X>? - Да 60% (1000.0)"],
+        "top_movers": ["Движений не обнаружено."],
+        "insight": "Тест <b>инсайта</b>.",
+    }
+    message = render_telegram_message(payload, window="12h", market_count=20, lang="ru")
+    assert "🔥 <b>Топ рынков</b>" in message
+    assert "&lt;X&gt;" in message
+    assert "<b>инсайта</b>" not in message
+
+
+def test_render_telegram_message_both_has_separator_and_en_label():
+    payload = {
+        "en": {
+            "headline": "20 markets in 12h",
+            "top_markets": ["Will X? - Yes 60% (1000.0)"],
+            "top_movers": ["No movers available."],
+            "insight": "Stable.",
+        },
+        "ru": {
+            "headline": "20 рынков за 12h",
+            "top_markets": ["Будет ли X? - Да 60% (1000.0)"],
+            "top_movers": ["Движений не обнаружено."],
+            "insight": "Стабильно.",
+        },
+    }
+    message = render_telegram_message(payload, window="12h", market_count=20, lang="both")
+    assert "———" in message
+    assert "🔥 <b>Top markets</b>" in message
+    assert "🔥 <b>Топ рынков</b>" in message
