@@ -104,6 +104,7 @@ async def _phrase_summary(
             client.chat.completions.create,
             model=model,
             messages=messages,
+            temperature=0,
         )
     except Exception as exc:
         return f"{fallback} (LLM unavailable: {exc})"

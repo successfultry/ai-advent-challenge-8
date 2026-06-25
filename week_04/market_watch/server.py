@@ -32,8 +32,8 @@ class State:
 
 CONFIG = Config(
     base_url=os.environ.get("MANIFOLD_API_URL", "https://api.manifold.markets"),
-    interval_s=max(1, int(os.environ.get("MARKET_WATCH_INTERVAL_S", "10"))),
-    limit=max(1, int(os.environ.get("MARKET_WATCH_LIMIT", "10"))),
+    interval_s=max(1, int(os.environ.get("MARKET_WATCH_INTERVAL_S", "60"))),
+    limit=max(1, int(os.environ.get("MARKET_WATCH_LIMIT", "20"))),
     db_path=os.environ.get("MARKET_WATCH_DB", "week_04/market_watch.db"),
 )
 
