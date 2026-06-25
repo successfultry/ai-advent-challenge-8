@@ -144,12 +144,16 @@ async def _history_for_latest(
     if since_iso is None:
         return None
 
+    grouped = await store.snapshots_since_batch(list({s.market_id for s in latest}), since_iso)
     history: dict[str, list[Snapshot]] = {}
     for snapshot in latest:
-        rows = await store.snapshots_since(snapshot.market_id, since_iso)
-        same_outcome = [row for row in rows if row.outcome == snapshot.outcome]
-        if same_outcome:
-            history[f"{snapshot.market_id}|{snapshot.outcome}"] = same_outcome
+        rows = [
+            row
+            for row in grouped.get(snapshot.market_id, [])
+            if row.outcome == snapshot.outcome
+        ]
+        if rows:
+            history[f"{snapshot.market_id}|{snapshot.outcome}"] = rows
     return history
 
 

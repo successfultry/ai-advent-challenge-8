@@ -166,7 +166,7 @@ uv run pytest week_04 -q
 
 Expected line:
 ```
-6 passed
+12 passed
 ```
 
 `test_mcp_server_api.py` covers:
@@ -195,6 +195,9 @@ Day 18 uses a FastMCP service + adapter pattern:
 - `watcher.py` is the agent-side 24/7 loop. It keeps one MCP session open, periodically
   calls tools, and optionally asks an LLM to phrase the summary.
 
+The Day 18 24/7 agent is `watcher.py`. `agent.py` is the Day 17 one-shot tool-calling
+agent used by `week_04.main --agent --ask`.
+
 The "both schedulers" decision is intentional: the server collects data on its own
 interval, and the watcher runs the agent loop on its own interval.
 
@@ -222,9 +225,17 @@ interval, and the watcher runs the agent loop on its own interval.
 # offline-safe demo: no tokens, survives DNS/network errors
 uv run python -m week_04.market_watch.watcher --cycles 1 --interval 1 --no-llm
 
-# live 24/7 agent loop with LLM phrasing
-uv run python -m week_04.market_watch.watcher --interval 60 --window 1h
+# live 24/7 agent loop with EN+RU LLM phrasing
+uv run python -m week_04.market_watch.watcher --interval 60 --window 1h --lang both
 ```
+
+Useful watcher flags:
+
+- `--interval 60` — seconds between agent cycles
+- `--window 1h` — summary window (`all`, `1h`, `24h`, `7d`)
+- `--cycles 1` — finite run for demos/tests
+- `--no-llm` — deterministic summary only, no tokens
+- `--lang en|ru|both` — LLM summary language; `both` returns English and Russian sections
 
 Expected offline-safe behavior:
 

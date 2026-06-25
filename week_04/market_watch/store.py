@@ -158,6 +158,33 @@ class MarketStore:
             rows = await cursor.fetchall()
         return [self._snapshot_from_row(row) for row in rows]
 
+    async def snapshots_since_batch(
+        self,
+        market_ids: list[str],
+        since_iso: str,
+    ) -> dict[str, list[Snapshot]]:
+        if not market_ids:
+            return {}
+
+        db = self._require_db()
+        placeholders = ", ".join("?" for _ in market_ids)
+        async with db.execute(
+            f"""
+            SELECT id, market_id, question, outcome, price, volume, captured_at
+            FROM snapshots
+            WHERE market_id IN ({placeholders}) AND captured_at >= ?
+            ORDER BY captured_at ASC, id ASC
+            """,
+            (*market_ids, since_iso),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        grouped: dict[str, list[Snapshot]] = {}
+        for row in rows:
+            snapshot = self._snapshot_from_row(row)
+            grouped.setdefault(snapshot.market_id, []).append(snapshot)
+        return grouped
+
     async def save_summary(self, s: Summary) -> int:
         db = self._require_db()
         cursor = await db.execute(

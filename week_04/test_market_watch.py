@@ -113,6 +113,9 @@ async def test_market_store_round_trip(tmp_path):
         )
         latest = await store.latest_per_market()
         since = await store.snapshots_since("m1", "2026-01-01T00:30:00+00:00")
+        batch_since = await store.snapshots_since_batch(
+            ["m1", "m2"], "2026-01-01T00:30:00+00:00"
+        )
         summary_id = await store.save_summary(
             Summary(
                 id=None,
@@ -136,6 +139,10 @@ async def test_market_store_round_trip(tmp_path):
         ("m2", "Yes", 0.2),
     }
     assert [(row.market_id, row.outcome, row.price) for row in since] == [("m1", "Yes", 0.5)]
+    assert {
+        key: [(row.outcome, row.price) for row in value]
+        for key, value in batch_since.items()
+    } == {"m1": [("Yes", 0.5)], "m2": [("Yes", 0.2)]}
     assert summary_id == 1
     assert summary is not None
     assert summary.text == "test summary"
