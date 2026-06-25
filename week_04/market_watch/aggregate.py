@@ -14,7 +14,7 @@ def summarize_snapshots(
     markets = sorted(latest, key=lambda item: item.volume or 0.0, reverse=True)[:top_n]
     result = {
         "window": window,
-        "market_count": len(latest),
+        "market_count": len({item.market_id for item in latest}),
         "generated_at": utc_now(),
         "markets": [_snapshot_dict(item) for item in markets],
     }

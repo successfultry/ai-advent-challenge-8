@@ -60,7 +60,9 @@ async def _run_cycle(
 ) -> None:
     collected = await session.call_tool("collect_now", arguments={})
     collected_data = _parse_json_text(tool_text(collected))
-    summary_result = await session.call_tool("build_summary", arguments={"window": window})
+    summary_result = await session.call_tool(
+        "build_summary", arguments={"window": window, "top_n": 20}
+    )
     summary = _parse_json_text(tool_text(summary_result))
 
     fallback = summary.get("text") or "No market summary available."
@@ -91,7 +93,7 @@ async def _phrase_summary(
                 "Write a structured markdown market summary from this aggregate JSON.\n"
                 "For each requested language, use this exact structure:\n"
                 "- one headline line with market_count and window\n"
-                "- 'Top markets' with up to 5 bullets: question - outcome probability% (vol)\n"
+                "- 'Top markets' with up to 10 bullets: question - outcome probability% (vol)\n"
                 "- 'Top movers' with up to 3 bullets: question - outcome "
                 "from% -> to% (delta +/-x.x pts)\n"
                 "- if there are no movers, say that explicitly\n\n"
