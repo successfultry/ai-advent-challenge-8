@@ -1,12 +1,21 @@
 import argparse
 import asyncio
+import sys
 
 from week_04.agent import run_agent
 from week_04.mcp_client import interact
 from week_04.targets import TARGETS
 
 
+def _configure_console() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
+
 def main() -> None:
+    _configure_console()
     parser = argparse.ArgumentParser(description="Week 04 - MCP client / agent")
     parser.add_argument("--target", choices=list(TARGETS), default="own")
     parser.add_argument(

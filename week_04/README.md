@@ -339,6 +339,116 @@ uv run python -m week_04.market_watch.watcher --provider "DeepSeek V3" --interva
 
 ---
 
+## Day 19 — MCP tool composition (Foursquare Places pipeline)
+
+### Goal
+
+Build a 3-tool MCP pipeline where the LLM agent automatically chains tool calls from one
+free-form user prompt. There is no hardcoded call sequence in the client.
+
+### Architecture
+
+```
+User prompt
+    │
+    ▼
+LLM agent (agent.py)  ←──── discovers tools from MCP server ────►  mcp_server_places.py
+    │                                                                  ├── search_places
+    │  tool_call #1: search_places(near=..., query=...)                ├── build_report
+    │  tool_call #2: build_report(data_json=..., top_n=..., ...)       └── save_to_file
+    │  tool_call #3: save_to_file(content=..., filename=...)
+    ▼
+Final answer + file saved to week_04/places_outputs/
+```
+
+- **MCP server** exposes 3 deterministic tools (no LLM inside the server).
+- **LLM** receives tool schemas, reads the user prompt, and decides the call order itself.
+- **Data**: real Foursquare Places API (global venue database, requires `FOURSQUARE_API_KEY`).
+
+### Day 19 tools (`--target places`)
+
+| Tool | Purpose |
+|------|---------|
+| `search_places(near, query, limit, sort, open_now, min_price, max_price)` | Fetch real venues from Foursquare Places API |
+| `build_report(data_json, top_n, max_distance_m)` | Filter by distance, sort nearest first, build markdown |
+| `save_to_file(content, filename)` | Write report to `week_04/places_outputs/<filename>` |
+
+`sort` accepts only `RELEVANCE` and `DISTANCE`. Foursquare also accepts `RATING` and
+`POPULARITY`, but the rating/popularity values are Premium fields and are not returned on
+the free Pro tier, so they are intentionally not exposed in this demo.
+
+`min_price`/`max_price`: 1 ($) to 4 ($$$$). These filters were verified against the Pro
+search endpoint.
+
+### Data semantics
+
+- `distance` is straight-line metres from the geocoded center of `near` to the place.
+  It is not measured from the current user location.
+- Returned Pro fields: `name`, `location`, `categories`, `distance`, `tel`, `website`.
+- Premium fields are not requested: `rating`, `popularity`, `price`, `hours`, `photos`,
+  `tips`, `tastes`, `description`, `stats`.
+- The prompt can be free-form. If the user asks to search only, the LLM may call only
+  `search_places`; if the user asks for a report, it should chain `search_places` and
+  `build_report`; if the user asks to save, it should chain all 3 tools.
+- Prompts without a place/city cannot run `search_places` because the API needs `near`.
+- Multi-city comparisons can exceed the agent's `_MAX_STEPS = 5` guard.
+
+### Env
+
+```bash
+FOURSQUARE_API_KEY=<your service API key>
+```
+
+Get a free key at [location.foursquare.com/developer](https://location.foursquare.com/developer) →
+create a project → Settings → Generate Service API Key.
+Free tier: 10,000 requests/month (Pro fields only; `rating`/`popularity` are Premium).
+
+### Run
+
+```bash
+# Manual REPL (inspect tools, call manually)
+uv run python -m week_04.main --target places
+
+# Agent auto-chain: full pipeline in one prompt
+uv run python -m week_04.main --target places --agent --provider "GPT-4o mini" \
+  --ask "Find 10 italian restaurants near Saint Petersburg, filter to 5 closest within 2km, and save the report to spb_italian.md"
+
+# Another city / cuisine
+uv run python -m week_04.main --target places --agent --provider "GPT-4o mini" \
+  --ask "Search for sushi places in Tokyo, build a report of top 3 nearest and save to tokyo_sushi.md"
+```
+
+### Expected output
+
+```
+tools available to LLM: ['search_places', 'build_report', 'save_to_file']
+
+User: Find 10 italian restaurants near Saint Petersburg, ...
+
+  -> call search_places({'near': 'Saint Petersburg', 'query': 'italian restaurant', 'limit': 10})
+  <- {"near": "Saint Petersburg", "query": "italian restaurant", "count": 10, ...}
+
+  -> call build_report({'data_json': '...', 'top_n': 5, 'max_distance_m': 2000})
+  <- {"shown": 5, "total": 10, "report_markdown": "## Places: italian restaurant near ..."}
+
+  -> call save_to_file({'content': '## Places: ...', 'filename': 'spb_italian.md'})
+  <- {"ok": true, "path": "week_04/places_outputs/spb_italian.md", "bytes": 847}
+
+Agent: Done! I found 10 Italian restaurants near Saint Petersburg, selected the 5 closest
+within 2 km, and saved the report to week_04/places_outputs/spb_italian.md.
+```
+
+### Tests
+
+```bash
+uv run pytest week_04/test_places_server.py -q
+```
+
+Covers: search_places validation, build_report sorting + distance filter, save_to_file
+path-traversal guard. No live network calls.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -359,5 +469,6 @@ uv run python -m week_04.market_watch.watcher --provider "DeepSeek V3" --interva
 | 16 | MCP connection + interactive tool calls over stdio/http targets (`own`, `time`, `remote`) | `-m week_04.main`, `--target own\|time\|remote` | `mcp_server.py`, `mcp_client.py`, `targets.py`, `main.py` | done | _link_ |
 | 17 | Own API-wrapping MCP server (`api`) + LLM agent that calls tools and uses results | `-m week_04.main --target api`, `--agent --ask "..."`, `pytest week_04 -q` | `mcp_server_api.py`, `agent.py`, `targets.py`, `main.py`, `test_mcp_server_api.py` | done | _link_ |
 | 18 | Market Watch MCP server with scheduled collection, SQLite aggregation, and 24/7 watcher agent | `-m week_04.market_watch.watcher --cycles 1 --no-llm`, `pytest week_04/test_market_watch.py -q` | `market_watch/`, `targets.py`, `test_market_watch.py` | done | _link_ |
+| 19 | MCP tool composition: 3-tool Foursquare Places pipeline, LLM auto-chains | `-m week_04.main --target places --agent --ask "..."`, `pytest week_04/test_places_server.py -q` | `mcp_server_places.py`, `targets.py`, `test_places_server.py` | done | _link_ |
 
 All days share one codebase; this table maps each day to commands and modules.

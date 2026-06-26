@@ -63,10 +63,21 @@ def market_watch() -> Target:
     )
 
 
+def places() -> Target:
+    return Target(
+        label="Day 19 Foursquare Places pipeline (search -> report -> save)",
+        kind="stdio",
+        params=StdioServerParameters(
+            command=sys.executable, args=["-m", "week_04.mcp_server_places"]
+        ),
+    )
+
+
 TARGETS = {
     "own": own,
     "time": time,
     "remote": remote,
     "api": api,
     "market_watch": market_watch,
+    "places": places,
 }
