@@ -10,9 +10,10 @@ from week_04.targets import Target
 _SYSTEM = (
     "You are an assistant with access to MCP tools. "
     "When a tool can help, call it, then answer the user using the tool result. "
-    "For search/report requests, save the final report with save_to_file unless the "
-    "user explicitly asks not to save or asks only to show results. "
-    "If no filename is provided, choose a sensible one like places_report_<city>.md. "
+    "For any places search/report request, always call save_to_file after build_report. "
+    "If no filename is provided, choose a sensible lowercase filename using the city "
+    "and query, like places_report_lisbon_coffee.md. "
+    "Do not skip saving unless the request is impossible to complete. "
     "Be concise."
 )
 _MAX_STEPS = 5

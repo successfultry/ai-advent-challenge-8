@@ -387,9 +387,10 @@ search endpoint.
 - Returned Pro fields: `name`, `location`, `categories`, `distance`, `tel`, `website`.
 - Premium fields are not requested: `rating`, `popularity`, `price`, `hours`, `photos`,
   `tips`, `tastes`, `description`, `stats`.
-- The prompt can be free-form. If the user asks to search only, the LLM may call only
-  `search_places`; if the user asks for a report, it should chain `search_places` and
-  `build_report`; if the user asks to save, it should chain all 3 tools.
+- The prompt can be free-form. For any places search/report request, the agent should chain
+  `search_places` -> `build_report` -> `save_to_file`.
+- The report is saved even when the user does not explicitly ask to save it. If no filename
+  is provided, the agent chooses a sensible one like `places_report_lisbon_coffee.md`.
 - Prompts without a place/city cannot run `search_places` because the API needs `near`.
 - Multi-city comparisons can exceed the agent's `_MAX_STEPS = 5` guard.
 
@@ -438,20 +439,63 @@ Free tier: 10,000 requests/month (Pro fields only; `rating`/`popularity` are Pre
 # Manual REPL (inspect tools, call manually)
 uv run python -m week_04.main --target places
 
-# Agent auto-chain with --ask
+# Agent auto-chain with --ask (Russian prompt, explicit filename)
 uv run python -m week_04.main --target places --agent --provider "GPT-4o mini" \
-  --ask "Find 10 italian restaurants near Saint Petersburg, filter to 5 closest within 2km, and save the report to spb_italian.md"
+  --ask "Найди italian restaurants в Санкт-Петербурге, топ-5 ближайших к центру города в пределах 2 км, сохрани отчёт в spb_italian.md"
 
-# Agent auto-chain without --ask: enter the question at Ask>
+# Agent auto-chain without --ask: enter the Russian question at Ask>
 uv run python -m week_04.main --target places --agent --provider "GPT-4o mini"
 
-# Another city / cuisine
+# No explicit filename: agent should still save the report with a sensible filename
 uv run python -m week_04.main --target places --agent --provider "GPT-4o mini" \
-  --ask "Search for sushi places in Tokyo, build a report of top 3 nearest and save to tokyo_sushi.md"
+  --ask "Найди coffee shops в Лиссабоне, топ-7 ближайших к центру города"
+```
 
-# Russian prompt example
-uv run python -m week_04.main --target places --agent --provider "GPT-4o mini" \
-  --ask "Найди суши в Токио, топ-3 ближайших, сохрани в tokyo_sushi.md"
+### Russian prompts to test
+
+Use these either with `--ask "..."` or paste one into `Ask>` when running without `--ask`.
+Use English place categories inside Russian prompts (`italian restaurants`, `sushi
+restaurants`, `coffee shops`) because Foursquare matches them more reliably than broad
+Russian phrases like "японская кухня".
+
+```text
+Найди italian restaurants в Санкт-Петербурге, топ-5 ближайших к центру города в пределах 2 км, сохрани отчёт в spb_italian.md
+```
+
+```text
+Найди sushi restaurants в Токио, топ-3 ближайших к центру города, сохрани отчёт в tokyo_sushi.md
+```
+
+```text
+Найди coffee shops в Лиссабоне, топ-7 ближайших к центру города
+```
+
+```text
+Найди bakeries в Праге, топ-5 ближайших к центру города в пределах 1500 метров, сохрани отчёт в prague_bakeries.md
+```
+
+```text
+Найди ramen restaurants в Osaka, топ-5 ближайших к центру города, сохрани отчёт в osaka_ramen.md
+```
+
+```text
+Найди pizza restaurants в Rome, топ-6 ближайших к центру города, сохрани отчёт в rome_pizza.md
+```
+
+```text
+Найди Mexican restaurants в Madrid, топ-5 ближайших к центру города в пределах 3 км
+```
+
+```text
+Найди bookstores в London, топ-5 ближайших к центру города, сохрани отчёт в london_bookstores.md
+```
+
+```text
+Найди parks в Berlin, топ-5 ближайших к центру города, сохрани отчёт в berlin_parks.md
+```
+
+```text
+Найди museums в Paris, топ-5 ближайших к центру города, сохрани отчёт в paris_museums.md
 ```
 
 ### Expected output
