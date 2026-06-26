@@ -377,8 +377,24 @@ Final answer + file saved to week_04/places_outputs/
 `POPULARITY`, but the rating/popularity values are Premium fields and are not returned on
 the free Pro tier, so they are intentionally not exposed in this demo.
 
-`min_price`/`max_price`: 1 ($) to 4 ($$$$). These filters were verified against the Pro
-search endpoint.
+Price filters:
+
+Foursquare supports `min_price`/`max_price` as search filters from `1` to `4`:
+
+- `1` = cheap / budget (`$`)
+- `2` = moderate (`$$`)
+- `3` = expensive (`$$$`)
+- `4` = very expensive / upscale (`$$$$`)
+
+Examples:
+
+- "недорогие places" -> `max_price=2`
+- "самые дешевые places" -> `max_price=1`
+- "средний ценник" -> `min_price=2`, `max_price=3`
+- "дорогие / премиальные places" -> `min_price=3`, `max_price=4`
+
+These filters limit search results by price tier. The actual `price` value is a Premium
+response field, so it is not returned or shown in the report.
 
 ### Data semantics
 

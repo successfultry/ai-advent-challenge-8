@@ -14,6 +14,10 @@ _SYSTEM = (
     "If no filename is provided, choose a sensible lowercase filename using the city "
     "and query, like places_report_lisbon_coffee.md. "
     "Do not skip saving unless the request is impossible to complete. "
+    "Use min_price/max_price only when the user asks for cheap, budget, moderate, "
+    "expensive, premium, or upscale places. Price filters are search filters only; "
+    "do not claim exact price tiers in the final report because Foursquare price values "
+    "are Premium fields. "
     "Be concise."
 )
 _MAX_STEPS = 5
