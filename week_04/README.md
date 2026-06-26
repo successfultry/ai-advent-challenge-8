@@ -444,8 +444,8 @@ within 2 km, and saved the report to week_04/places_outputs/spb_italian.md.
 uv run pytest week_04/test_places_server.py -q
 ```
 
-Covers: search_places validation, build_report sorting + distance filter, save_to_file
-path-traversal guard. No live network calls.
+Covers: search_places validation, build_report sorting + distance filter (including
+`distance_m=None` edge behavior), save_to_file path-traversal guard. No live network calls.
 
 ---
 

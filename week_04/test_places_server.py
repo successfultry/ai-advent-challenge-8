@@ -200,6 +200,42 @@ def test_build_report_filters_by_max_distance() -> None:
     assert "Far Away Cafe" not in data["report_markdown"]
 
 
+def test_build_report_drops_none_distance_with_max_distance() -> None:
+    data_json = json.dumps(
+        {
+            "near": "Milan",
+            "query": "italian restaurant",
+            "places": [
+                {
+                    "name": "Unknown Distance Place",
+                    "address": "X",
+                    "locality": "Milan",
+                    "country": "IT",
+                    "categories": [],
+                    "distance_m": None,
+                    "tel": "",
+                    "website": "",
+                },
+                {
+                    "name": "Known Distance Place",
+                    "address": "Y",
+                    "locality": "Milan",
+                    "country": "IT",
+                    "categories": [],
+                    "distance_m": 300,
+                    "tel": "",
+                    "website": "",
+                },
+            ],
+        }
+    )
+    result = build_report(data_json=data_json, top_n=5, max_distance_m=500)
+    data = json.loads(result)
+    assert data["shown"] == 1
+    assert "Known Distance Place" in data["report_markdown"]
+    assert "Unknown Distance Place" not in data["report_markdown"]
+
+
 def test_build_report_respects_top_n() -> None:
     result = build_report(data_json=_MOCK_SEARCH_JSON, top_n=1)
     data = json.loads(result)
@@ -232,6 +268,40 @@ def test_build_report_markdown_structure() -> None:
     assert "## Places:" in md
     assert "---" in md
     assert "Showing" in md
+
+
+def test_build_report_sorts_none_distance_last() -> None:
+    data_json = json.dumps(
+        {
+            "near": "Milan",
+            "query": "italian restaurant",
+            "places": [
+                {
+                    "name": "Unknown Distance Place",
+                    "address": "X",
+                    "locality": "Milan",
+                    "country": "IT",
+                    "categories": [],
+                    "distance_m": None,
+                    "tel": "",
+                    "website": "",
+                },
+                {
+                    "name": "Known Distance Place",
+                    "address": "Y",
+                    "locality": "Milan",
+                    "country": "IT",
+                    "categories": [],
+                    "distance_m": 300,
+                    "tel": "",
+                    "website": "",
+                },
+            ],
+        }
+    )
+    result = build_report(data_json=data_json, top_n=5)
+    md = json.loads(result)["report_markdown"]
+    assert md.index("Known Distance Place") < md.index("Unknown Distance Place")
 
 
 def test_save_to_file_creates_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

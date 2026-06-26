@@ -73,13 +73,13 @@ async def search_places(
     query = query.strip()
     sort = sort.strip().upper()
     if not near:
-        return json.dumps({"error": "near must be a non-empty string"})
+        return json.dumps({"error": "near must be a non-empty string"}, ensure_ascii=False)
     if not query:
-        return json.dumps({"error": "query must be a non-empty string"})
+        return json.dumps({"error": "query must be a non-empty string"}, ensure_ascii=False)
     if not (1 <= limit <= 50):
-        return json.dumps({"error": "limit must be between 1 and 50"})
+        return json.dumps({"error": "limit must be between 1 and 50"}, ensure_ascii=False)
     if sort not in {"RELEVANCE", "DISTANCE"}:
-        return json.dumps({"error": "sort must be RELEVANCE or DISTANCE"})
+        return json.dumps({"error": "sort must be RELEVANCE or DISTANCE"}, ensure_ascii=False)
 
     params: dict[str, str | int] = {
         "near": near,
@@ -98,7 +98,7 @@ async def search_places(
     try:
         key = _fsq_key()
     except RuntimeError as exc:
-        return json.dumps({"error": str(exc)})
+        return json.dumps({"error": str(exc)}, ensure_ascii=False)
 
     headers = {
         "Authorization": f"Bearer {key}",
@@ -117,17 +117,19 @@ async def search_places(
                     f"Foursquare API error: {exc.response.status_code} "
                     f"{exc.response.text[:200]}"
                 )
-            }
+            },
+            ensure_ascii=False,
         )
     except ValueError:
-        return json.dumps({"error": "Foursquare returned non-JSON body"})
+        return json.dumps({"error": "Foursquare returned non-JSON body"}, ensure_ascii=False)
     except httpx.HTTPError as exc:
-        return json.dumps({"error": f"Foursquare request failed: {exc}"})
+        return json.dumps({"error": f"Foursquare request failed: {exc}"}, ensure_ascii=False)
 
     results = data.get("results") or []
     places = [_parse_place(place) for place in results]
     return json.dumps(
-        {"near": near, "query": query, "count": len(places), "places": places}
+        {"near": near, "query": query, "count": len(places), "places": places},
+        ensure_ascii=False,
     )
 
 
@@ -149,10 +151,10 @@ def build_report(
     try:
         data = json.loads(data_json)
     except (json.JSONDecodeError, ValueError):
-        return json.dumps({"error": "data_json is not valid JSON"})
+        return json.dumps({"error": "data_json is not valid JSON"}, ensure_ascii=False)
 
     if "error" in data:
-        return json.dumps({"error": data["error"]})
+        return json.dumps({"error": data["error"]}, ensure_ascii=False)
 
     places: list[dict[str, Any]] = data.get("places") or []
     near: str = data.get("near", "")
@@ -162,23 +164,33 @@ def build_report(
         places = [
             place
             for place in places
-            if (place.get("distance_m") or 0) <= max_distance_m
+            if place.get("distance_m") is not None
+            and place["distance_m"] <= max_distance_m
         ]
 
-    places = sorted(places, key=lambda place: place.get("distance_m") or 0)
+    places = sorted(
+        places,
+        key=lambda place: place["distance_m"]
+        if place.get("distance_m") is not None
+        else float("inf"),
+    )
     selected = places[: max(0, top_n)]
 
     lines: list[str] = [f"## Places: {query} near {near}", ""]
     for i, place in enumerate(selected, 1):
-        addr_parts = [place["address"], place["locality"], place["country"]]
+        addr_parts = [
+            place.get("address", ""),
+            place.get("locality", ""),
+            place.get("country", ""),
+        ]
         addr = ", ".join(part for part in addr_parts if part)
-        cats = " / ".join(place["categories"]) if place["categories"] else "-"
+        cats = " / ".join(place.get("categories") or []) or "-"
         dist = (
             f"{place['distance_m']} m" if place.get("distance_m") is not None else "-"
         )
-        tel = place["tel"] or "-"
-        web = place["website"] or "-"
-        lines.append(f"{i}. **{place['name']}** - {addr}")
+        tel = place.get("tel") or "-"
+        web = place.get("website") or "-"
+        lines.append(f"{i}. **{place.get('name', '')}** - {addr}")
         lines.append(
             f"   Categories: {cats} | Distance: {dist} | Tel: {tel} | Web: {web}"
         )
@@ -195,7 +207,8 @@ def build_report(
             "near": near,
             "query": query,
             "report_markdown": "\n".join(lines),
-        }
+        },
+        ensure_ascii=False,
     )
 
 
@@ -213,13 +226,16 @@ def save_to_file(
 ) -> str:
     filename = filename.strip()
     if not filename:
-        return json.dumps({"error": "filename must not be empty"})
+        return json.dumps({"error": "filename must not be empty"}, ensure_ascii=False)
     if filename in {".", ".."}:
-        return json.dumps({"error": "filename must not be '.' or '..'"})
+        return json.dumps({"error": "filename must not be '.' or '..'"}, ensure_ascii=False)
     if ".." in filename or "/" in filename or "\\" in filename:
-        return json.dumps({"error": "filename must not contain path separators or '..'"})
+        return json.dumps(
+            {"error": "filename must not contain path separators or '..'"},
+            ensure_ascii=False,
+        )
     if not _SAFE_FILENAME.match(filename):
-        return json.dumps({"error": "filename contains invalid characters"})
+        return json.dumps({"error": "filename contains invalid characters"}, ensure_ascii=False)
 
     out_dir = _OUTPUTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -230,7 +246,8 @@ def save_to_file(
     except ValueError:
         rel_path = dest
     return json.dumps(
-        {"ok": True, "path": rel_path.as_posix(), "bytes": len(content.encode())}
+        {"ok": True, "path": rel_path.as_posix(), "bytes": len(content.encode())},
+        ensure_ascii=False,
     )
 
 
