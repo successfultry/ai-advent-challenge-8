@@ -393,6 +393,35 @@ search endpoint.
 - Prompts without a place/city cannot run `search_places` because the API needs `near`.
 - Multi-city comparisons can exceed the agent's `_MAX_STEPS = 5` guard.
 
+### Pro vs Premium fields (billing)
+
+This demo requests only Foursquare Pro fields:
+
+- `name`
+- `location`
+- `categories`
+- `distance`
+- `tel`
+- `website`
+
+Premium fields are not requested:
+
+- `rating`
+- `popularity`
+- `price`
+- `hours`
+- `photos`
+- `tips`
+- `tastes`
+- `description`
+- `stats`
+
+Notes:
+
+- Each request still counts toward the Pro quota.
+- Pro calls are free until the free quota limit, then billed by Pro pricing.
+- Requesting Premium fields without credits returns a Foursquare API billing error.
+
 ### Env
 
 ```bash
@@ -409,13 +438,20 @@ Free tier: 10,000 requests/month (Pro fields only; `rating`/`popularity` are Pre
 # Manual REPL (inspect tools, call manually)
 uv run python -m week_04.main --target places
 
-# Agent auto-chain: full pipeline in one prompt
+# Agent auto-chain with --ask
 uv run python -m week_04.main --target places --agent --provider "GPT-4o mini" \
   --ask "Find 10 italian restaurants near Saint Petersburg, filter to 5 closest within 2km, and save the report to spb_italian.md"
+
+# Agent auto-chain without --ask: enter the question at Ask>
+uv run python -m week_04.main --target places --agent --provider "GPT-4o mini"
 
 # Another city / cuisine
 uv run python -m week_04.main --target places --agent --provider "GPT-4o mini" \
   --ask "Search for sushi places in Tokyo, build a report of top 3 nearest and save to tokyo_sushi.md"
+
+# Russian prompt example
+uv run python -m week_04.main --target places --agent --provider "GPT-4o mini" \
+  --ask "Найди суши в Токио, топ-3 ближайших, сохрани в tokyo_sushi.md"
 ```
 
 ### Expected output
@@ -459,6 +495,7 @@ Covers: search_places validation, build_report sorting + distance filter (includ
 | `remote` unreachable | public endpoint may be down; retry later or use `own`/`api` |
 | `--agent` fails with missing key | set provider key in `.env` (`OPENAI_API_KEY`, etc.) |
 | `market_watch` returns 0 markets | check Manifold/network availability, or use the offline-safe watcher demo |
+| Foursquare premium credits error | remove Premium fields (`rating`, `popularity`, `price`, `hours`, `photos`, `tips`, etc.) from `fields`, or add billing credits |
 
 ---
 
