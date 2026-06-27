@@ -2,9 +2,9 @@ import argparse
 import asyncio
 import sys
 
-from week_04.agent import run_agent
+from week_04.agent import run_agent, run_orchestrated_agent
 from week_04.mcp_client import interact
-from week_04.targets import TARGETS
+from week_04.targets import ORCHESTRATION_PROFILES, TARGETS
 
 
 def _configure_console() -> None:
@@ -19,7 +19,8 @@ def _configure_console() -> None:
 def main() -> None:
     _configure_console()
     parser = argparse.ArgumentParser(description="Week 04 - MCP client / agent")
-    parser.add_argument("--target", choices=list(TARGETS), default="own")
+    target_choices = list(TARGETS) + list(ORCHESTRATION_PROFILES)
+    parser.add_argument("--target", choices=target_choices, default="own")
     parser.add_argument(
         "--agent", action="store_true", help="run the LLM agent instead of the REPL"
     )
@@ -32,8 +33,13 @@ def main() -> None:
             question = args.ask if args.ask else input("Ask> ").strip()
             if not question:
                 raise SystemExit("ERROR: empty question")
-            asyncio.run(run_agent(TARGETS[args.target](), args.provider, question))
+            if args.target in ORCHESTRATION_PROFILES:
+                asyncio.run(run_orchestrated_agent(args.target, args.provider, question))
+            else:
+                asyncio.run(run_agent(TARGETS[args.target](), args.provider, question))
         else:
+            if args.target in ORCHESTRATION_PROFILES:
+                raise SystemExit("ERROR: orchestration profile requires --agent mode")
             asyncio.run(interact(TARGETS[args.target]()))
     except FileNotFoundError as exc:
         raise SystemExit(f"ERROR: {exc}") from None
@@ -45,3 +51,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

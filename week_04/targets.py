@@ -73,6 +73,46 @@ def places() -> Target:
     )
 
 
+def github() -> Target:
+    return Target(
+        label="Day 20 GitHub MCP server (Tech Radar source)",
+        kind="stdio",
+        params=StdioServerParameters(
+            command=sys.executable, args=["-m", "week_04.tech_radar.mcp_server_github"]
+        ),
+    )
+
+
+def pypi() -> Target:
+    return Target(
+        label="Day 20 PyPI MCP server (Tech Radar source)",
+        kind="stdio",
+        params=StdioServerParameters(
+            command=sys.executable, args=["-m", "week_04.tech_radar.mcp_server_pypi"]
+        ),
+    )
+
+
+def radar() -> Target:
+    return Target(
+        label="Day 20 Radar MCP server (requirements + scoring)",
+        kind="stdio",
+        params=StdioServerParameters(
+            command=sys.executable, args=["-m", "week_04.tech_radar.mcp_server_radar"]
+        ),
+    )
+
+
+def reports() -> Target:
+    return Target(
+        label="Day 20 Reports MCP server (report storage)",
+        kind="stdio",
+        params=StdioServerParameters(
+            command=sys.executable, args=["-m", "week_04.tech_radar.mcp_server_reports"]
+        ),
+    )
+
+
 TARGETS = {
     "own": own,
     "time": time,
@@ -80,4 +120,28 @@ TARGETS = {
     "api": api,
     "market_watch": market_watch,
     "places": places,
+    "github": github,
+    "pypi": pypi,
+    "radar": radar,
+    "reports": reports,
 }
+
+ORCHESTRATION_PROFILES: dict[str, list[str]] = {
+    "tech_radar": ["github", "pypi", "radar", "reports"],
+}
+
+
+def profile_targets(profile: str) -> dict[str, Target]:
+    profile_servers = ORCHESTRATION_PROFILES.get(profile)
+    if profile_servers is None:
+        raise KeyError(f"unknown orchestration profile: {profile}")
+    mapping = {
+        "github": github,
+        "pypi": pypi,
+        "radar": radar,
+        "reports": reports,
+    }
+    try:
+        return {server: mapping[server]() for server in profile_servers}
+    except KeyError as exc:
+        raise KeyError(f"profile {profile} references unknown server: {exc}") from exc

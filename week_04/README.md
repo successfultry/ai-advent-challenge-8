@@ -7,12 +7,15 @@ week_04/
 ├── main.py                 # entrypoint: REPL mode or --agent mode
 ├── mcp_client.py           # MCP client + interactive tool calling loop
 ├── agent.py                # LLM agent that can call MCP tools and use outputs
+├── orchestrator.py         # Day 20: multi-server orchestrator (not an MCP server)
 ├── mcp_server.py           # Day 16: local filesystem MCP server
 ├── mcp_server_api.py       # Day 17: MCP server wrapping external HTTP APIs
 ├── market_watch/           # Day 18: scheduler + SQLite + market-summary agent
-├── targets.py              # target registry (own, time, remote, api, market_watch)
-├── test_mcp_server_api.py  # pytest checks for Day 17 API server
-└── test_market_watch.py    # pytest checks for Day 18 market watch
+├── tech_radar/             # Day 20: github/pypi/radar/reports MCP servers
+├── targets.py              # target + orchestration profile registry
+├── tests/test_mcp_server_api.py  # pytest checks for Day 17 API server
+├── tests/test_market_watch.py    # pytest checks for Day 18 market watch
+└── tests/test_tech_radar_*.py  # pytest checks for Day 20 tech_radar flow
 ```
 
 No `__init__.py` in `week_04/` (PEP 420 namespace package), same run style as week_02/week_03:
@@ -27,6 +30,15 @@ No `__init__.py` in `week_04/` (PEP 420 namespace package), same run style as we
 | `remote` | `https://mcp.deepwiki.com/mcp` (DeepWiki, 3 tools) | Streamable HTTP | external (Devin) | network |
 | `api` | `python -m week_04.mcp_server_api` (4 tools over JSONPlaceholder + Open-Meteo) | stdio | ours | network |
 | `market_watch` | `python -m week_04.market_watch.server` (Manifold watch tools) | stdio | ours | network |
+| `places` | `python -m week_04.mcp_server_places` (Foursquare pipeline) | stdio | ours | Foursquare key |
+| `github` | `python -m week_04.tech_radar.mcp_server_github` | stdio | ours | network |
+| `pypi` | `python -m week_04.tech_radar.mcp_server_pypi` | stdio | ours | network |
+| `radar` | `python -m week_04.tech_radar.mcp_server_radar` | stdio | ours | Python only |
+| `reports` | `python -m week_04.tech_radar.mcp_server_reports` | stdio | ours | local fs |
+
+Orchestration profiles (agent mode only):
+
+- `tech_radar` -> `github + pypi + radar + reports`
 
 ## Base setup
 
@@ -169,7 +181,7 @@ Expected line:
 12 passed
 ```
 
-`test_mcp_server_api.py` covers:
+`tests/test_mcp_server_api.py` covers:
 - 4 tools are registered
 - required params schema checks
 - live smoke checks for `list_posts`, `get_post`, `create_post`
@@ -279,10 +291,10 @@ Expected offline-safe behavior:
 ### Tests
 
 ```bash
-uv run pytest week_04/test_market_watch.py -q
+uv run pytest week_04/tests/test_market_watch.py -q
 ```
 
-`test_market_watch.py` covers pure aggregation, Manifold response parsing, and SQLite
+`tests/test_market_watch.py` covers pure aggregation, Manifold response parsing, and SQLite
 storage using temporary databases. It does not call the network, LLM, or stdio MCP server.
 
 ### Inspect the database
@@ -537,11 +549,111 @@ within 2 km, and saved the report to week_04/places_outputs/spb_italian.md.
 ### Tests
 
 ```bash
-uv run pytest week_04/test_places_server.py -q
+uv run pytest week_04/tests/test_places_server.py -q
 ```
 
 Covers: search_places validation, build_report sorting + distance filter (including
 `distance_m=None` edge behavior), save_to_file path-traversal guard. No live network calls.
+
+---
+
+## Day 20 — MCP orchestration across multiple servers (Tech Radar)
+
+### Goal
+
+Build one agent flow that orchestrates tools across multiple MCP servers:
+
+- choose the right tool by intent
+- route every call to the right server session
+- execute a long flow with dependencies between calls
+
+### Architecture
+
+```
+User prompt
+    │
+    ▼
+Orchestrator agent (agent.py + orchestrator.py)
+    │
+    ├── github server (search_repos, get_repo, get_readme_excerpt)
+    ├── pypi server   (get_package, recent_releases)
+    ├── radar server  (extract_requirements, normalize_candidates, build_comparison, render_radar_markdown)
+    └── reports server (save_report, list_reports, load_report)
+```
+
+`orchestrator.py` is not an MCP server. It opens multiple MCP sessions concurrently,
+collects tools with qualified names (`github__...`, `pypi__...`, `radar__...`,
+`reports__...`), and routes each tool call by prefix.
+
+No tool is pre-called by Python code: the LLM agent selects and orders every tool call itself, including the first `radar__extract_requirements` step.
+
+### Run
+
+```bash
+uv run python -m week_04.main --target tech_radar --agent --provider "GPT-4o mini" \
+  --ask "Find Python libraries for data validation in a backend service. Discover candidates first, evaluate the top 3 using GitHub and PyPI evidence, apply requirement-aware scoring for maintained, typed, production-ready libraries, save the report as py_validation_radar_2026, then list saved reports."
+```
+
+### Expected log excerpt (agent-driven)
+
+```text
+tools available to LLM: ['github__search_repos', 'github__get_repo', 'github__get_readme_excerpt', 'pypi__get_package', 'pypi__recent_releases', 'radar__extract_requirements', 'radar__normalize_candidates', 'radar__build_comparison', 'radar__render_radar_markdown', 'reports__save_report', 'reports__list_reports', 'reports__load_report']
+
+User: Find Python libraries for data validation in a backend service...
+
+  -> call radar__extract_requirements({'user_prompt': 'Find Python libraries...'})
+  <- {"use_case": "data validation", ...}
+
+  -> call github__search_repos({'query': 'python data validation typed production-ready library', 'limit': 10})
+  <- {"count": 10, ...}
+
+  -> call radar__normalize_candidates({...})
+  -> call github__get_repo({...})
+  -> call github__get_readme_excerpt({...})
+  -> call pypi__get_package({...})
+  -> call pypi__recent_releases({...})
+  -> call radar__build_comparison({...})
+  -> call radar__render_radar_markdown({...})
+  -> call reports__save_report({'slug': 'py_validation_radar_2026'})
+  -> call reports__list_reports({})
+```
+
+### Expected long flow
+
+1. `radar__extract_requirements`
+2. `github__search_repos`
+3. `radar__normalize_candidates`
+4. `github__get_repo` (for each candidate)
+5. `github__get_readme_excerpt` (for each candidate)
+6. `pypi__get_package` (for each candidate)
+7. `pypi__recent_releases` (for each candidate)
+8. `radar__build_comparison` (with enriched candidate evidence)
+9. `radar__render_radar_markdown`
+10. `reports__save_report`
+11. `reports__list_reports`
+
+Wrong order examples:
+
+- `radar__build_comparison` before evidence collection
+- `reports__save_report` before markdown render
+- calling `pypi` tools through `github__...` prefix
+
+### Verification checklist
+
+- The run log shows qualified tool names from at least 4 server prefixes.
+- Tool order follows the dependency chain above.
+- Report is saved under `week_04/tech_radar_outputs/`.
+- `list_reports` returns the saved file.
+
+### Tests
+
+```bash
+uv run pytest week_04/tests/test_tech_radar_orchestrator.py week_04/tests/test_tech_radar_radar.py week_04/tests/test_tech_radar_reports.py -q
+```
+
+Covers: qualified routing, unknown route guard, strict enriched candidate normalization,
+deterministic scoring + package confidence penalty behavior, partial evidence tolerance,
+reports path safety, orchestration profile membership.
 
 ---
 
@@ -564,8 +676,17 @@ Covers: search_places validation, build_report sorting + distance filter (includ
 | Day | Task | Commands | Code | Status | Video |
 |-----|------|----------|------|--------|-------|
 | 16 | MCP connection + interactive tool calls over stdio/http targets (`own`, `time`, `remote`) | `-m week_04.main`, `--target own\|time\|remote` | `mcp_server.py`, `mcp_client.py`, `targets.py`, `main.py` | done | _link_ |
-| 17 | Own API-wrapping MCP server (`api`) + LLM agent that calls tools and uses results | `-m week_04.main --target api`, `--agent --ask "..."`, `pytest week_04 -q` | `mcp_server_api.py`, `agent.py`, `targets.py`, `main.py`, `test_mcp_server_api.py` | done | _link_ |
-| 18 | Market Watch MCP server with scheduled collection, SQLite aggregation, and 24/7 watcher agent | `-m week_04.market_watch.watcher --cycles 1 --no-llm`, `pytest week_04/test_market_watch.py -q` | `market_watch/`, `targets.py`, `test_market_watch.py` | done | _link_ |
-| 19 | MCP tool composition: 3-tool Foursquare Places pipeline, LLM auto-chains | `-m week_04.main --target places --agent --ask "..."`, `pytest week_04/test_places_server.py -q` | `mcp_server_places.py`, `targets.py`, `test_places_server.py` | done | _link_ |
+| 17 | Own API-wrapping MCP server (`api`) + LLM agent that calls tools and uses results | `-m week_04.main --target api`, `--agent --ask "..."`, `pytest week_04 -q` | `mcp_server_api.py`, `agent.py`, `targets.py`, `main.py`, `tests/test_mcp_server_api.py` | done | _link_ |
+| 18 | Market Watch MCP server with scheduled collection, SQLite aggregation, and 24/7 watcher agent | `-m week_04.market_watch.watcher --cycles 1 --no-llm`, `pytest week_04/tests/test_market_watch.py -q` | `market_watch/`, `targets.py`, `tests/test_market_watch.py` | done | _link_ |
+| 19 | MCP tool composition: 3-tool Foursquare Places pipeline, LLM auto-chains | `-m week_04.main --target places --agent --ask "..."`, `pytest week_04/tests/test_places_server.py -q` | `mcp_server_places.py`, `targets.py`, `tests/test_places_server.py` | done | _link_ |
+| 20 | MCP orchestration across 4 servers (Tech Radar), long routed flow with qualified tool prefixes | `-m week_04.main --target tech_radar --agent --ask "..."`, `pytest week_04/tests/test_tech_radar_orchestrator.py week_04/tests/test_tech_radar_radar.py week_04/tests/test_tech_radar_reports.py -q` | `tech_radar/`, `orchestrator.py`, `agent.py`, `targets.py`, `main.py`, `tests/test_tech_radar_*.py` | done | _link_ |
 
 All days share one codebase; this table maps each day to commands and modules.
+
+
+
+
+
+
+
+
