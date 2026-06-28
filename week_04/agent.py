@@ -139,6 +139,7 @@ async def run_orchestrated_agent(profile: str, provider: str, question: str) -> 
             {"role": "user", "content": question},
         ]
 
+        did_save = False
         for _ in range(_MAX_STEPS_ORCHESTRATION):
             resp = client.chat.completions.create(
                 model=model, messages=messages, tools=orchestrator.openai_tools
@@ -149,6 +150,7 @@ async def run_orchestrated_agent(profile: str, provider: str, question: str) -> 
                 return
 
             messages.append(msg.model_dump(exclude_none=True))
+            did_list_after_save = False
             for tc in msg.tool_calls:
                 try:
                     args = json.loads(tc.function.arguments or "{}")
@@ -161,7 +163,16 @@ async def run_orchestrated_agent(profile: str, provider: str, question: str) -> 
                     text = json.dumps({"error": str(exc)}, ensure_ascii=False)
                 print(f"  <- {_truncate(text)}")
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": text})
+
+                if tc.function.name.endswith("__save_report"):
+                    did_save = True
+                elif tc.function.name.endswith("__list_reports") and did_save:
+                    did_list_after_save = True
             print()
+
+            if did_list_after_save:
+                print("Agent: report saved and listed — flow complete.")
+                return
 
         print("Agent: (stopped: max tool steps reached)")
 
