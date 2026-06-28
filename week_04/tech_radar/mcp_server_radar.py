@@ -110,6 +110,10 @@ def _normalize_enriched_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     readme = candidate.get("readme") if isinstance(candidate.get("readme"), dict) else {}
     pypi = candidate.get("pypi") if isinstance(candidate.get("pypi"), dict) else {}
     releases = candidate.get("releases") if isinstance(candidate.get("releases"), dict) else {}
+    release_items = releases.get("items") if isinstance(releases.get("items"), list) else []
+    latest_release = (
+        release_items[0] if release_items and isinstance(release_items[0], dict) else {}
+    )
 
     return {
         "label": candidate.get("label"),
@@ -117,8 +121,10 @@ def _normalize_enriched_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         "package": candidate.get("package"),
         "package_guess": bool(candidate.get("package_guess", False)),
         "github": {
-            "stars": github.get("stars"),
+            "stars": github.get("stars", github.get("stargazers_count")),
             "updated_at": github.get("updated_at"),
+            "open_issues": github.get("open_issues", github.get("open_issues_count")),
+            "topics": github.get("topics") if isinstance(github.get("topics"), list) else [],
             "error": github.get("error"),
         },
         "readme": {
@@ -131,15 +137,27 @@ def _normalize_enriched_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
             "name": pypi.get("name"),
             "summary": pypi.get("summary"),
             "classifiers": pypi.get("classifiers"),
+            "latest_release_version": pypi.get(
+                "latest_release_version", latest_release.get("version")
+            ),
+            "latest_release_uploaded_at": pypi.get(
+                "latest_release_uploaded_at", latest_release.get("uploaded_at")
+            ),
             "error": pypi.get("error"),
         },
         "releases": {
-            "items": releases.get("items") if isinstance(releases.get("items"), list) else [],
+            "items": release_items,
+            "latest_version": releases.get("latest_version", latest_release.get("version")),
+            "latest_uploaded_at": releases.get(
+                "latest_uploaded_at", latest_release.get("uploaded_at")
+            ),
             "error": releases.get("error"),
         },
     }
 
 
+# Deterministic numeric scoring is intentional in MCP (arithmetic only).
+# Narrative analysis/recommendations must be produced by the LLM agent.
 def _maintenance_score(candidate: dict[str, Any]) -> float:
     gh = candidate["github"]
     if gh.get("error"):
@@ -378,51 +396,6 @@ def build_comparison(requirements_json: str, enriched_candidates_json: str) -> s
         "summary": summary,
     }
     return _json_dumps(payload)
-
-
-@mcp.tool(description="Render a markdown radar report from build_comparison output.")
-def render_radar_markdown(comparison_json: str) -> str:
-    try:
-        data = json.loads(comparison_json)
-    except json.JSONDecodeError:
-        return _json_dumps({"error": "comparison_json must be valid JSON"})
-
-    if isinstance(data, dict) and data.get("error"):
-        return _json_dumps({"error": data.get("error")})
-    if not isinstance(data, dict):
-        return _json_dumps({"error": "comparison_json must decode to an object"})
-
-    requirements = data.get("requirements") or {}
-    ranking = data.get("ranking") or []
-    lines = [
-        "# Tech Radar Report",
-        "",
-        "## Requirements",
-        f"- use_case: {requirements.get('use_case')}",
-        f"- io_model: {requirements.get('io_model')}",
-        f"- needs: {', '.join(requirements.get('needs') or [])}",
-        "",
-        "## Ranking",
-    ]
-    for idx, row in enumerate(ranking, start=1):
-        comps = row.get("components") or {}
-        lines.extend(
-            [
-                f"{idx}. **{row.get('label')}** (`{row.get('repo')}`)",
-                f"   - package: `{row.get('package')}` (guess={row.get('package_guess')})",
-                f"   - total score: {row.get('score')}",
-                (
-                    "   - fit: "
-                    f"{comps.get('fit_to_requirements')}, maintenance: "
-                    f"{comps.get('maintenance_activity')}, freshness: "
-                    f"{comps.get('release_freshness')}, community: "
-                    f"{comps.get('community_signal')}"
-                ),
-                f"   - confidence penalty: {row.get('confidence_penalty')}",
-            ]
-        )
-    lines.extend(["", "## Notes", "- Scoring uses deterministic heuristics and public metadata."])
-    return "\n".join(lines)
 
 
 if __name__ == "__main__":

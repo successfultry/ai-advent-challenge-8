@@ -577,7 +577,7 @@ Orchestrator agent (agent.py + orchestrator.py)
     │
     ├── github server (search_repos, get_repo, get_readme_excerpt)
     ├── pypi server   (get_package, recent_releases)
-    ├── radar server  (extract_requirements, normalize_candidates, build_comparison, render_radar_markdown)
+    ├── radar server  (extract_requirements, normalize_candidates, build_comparison)
     └── reports server (save_report, list_reports, load_report)
 ```
 
@@ -586,6 +586,10 @@ collects tools with qualified names (`github__...`, `pypi__...`, `radar__...`,
 `reports__...`), and routes each tool call by prefix.
 
 No tool is pre-called by Python code: the LLM agent selects and orders every tool call itself, including the first `radar__extract_requirements` step.
+
+Division of labor: MCP servers are sensors + deterministic scoring; the LLM agent chooses
+all tools, orchestrates the flow, and authors the final markdown report. No MCP tool calls
+an LLM.
 
 ### Run
 
@@ -597,7 +601,7 @@ uv run python -m week_04.main --target tech_radar --agent --provider "GPT-4o min
 ### Expected log excerpt (agent-driven)
 
 ```text
-tools available to LLM: ['github__search_repos', 'github__get_repo', 'github__get_readme_excerpt', 'pypi__get_package', 'pypi__recent_releases', 'radar__extract_requirements', 'radar__normalize_candidates', 'radar__build_comparison', 'radar__render_radar_markdown', 'reports__save_report', 'reports__list_reports', 'reports__load_report']
+tools available to LLM: ['github__search_repos', 'github__get_repo', 'github__get_readme_excerpt', 'pypi__get_package', 'pypi__recent_releases', 'radar__extract_requirements', 'radar__normalize_candidates', 'radar__build_comparison', 'reports__save_report', 'reports__list_reports', 'reports__load_report']
 
 User: Find Python libraries for data validation in a backend service...
 
@@ -613,8 +617,8 @@ User: Find Python libraries for data validation in a backend service...
   -> call pypi__get_package({...})
   -> call pypi__recent_releases({...})
   -> call radar__build_comparison({...})
-  -> call radar__render_radar_markdown({...})
-  -> call reports__save_report({'slug': 'py_validation_radar_2026'})
+  -> LLM authors markdown report from build_comparison output
+  -> call reports__save_report({'content': '# Tech Radar Report\n...', 'slug': 'py_validation_radar_2026'})
   -> call reports__list_reports({})
 ```
 
@@ -628,14 +632,14 @@ User: Find Python libraries for data validation in a backend service...
 6. `pypi__get_package` (for each candidate)
 7. `pypi__recent_releases` (for each candidate)
 8. `radar__build_comparison` (with enriched candidate evidence)
-9. `radar__render_radar_markdown`
+9. LLM writes markdown report from `build_comparison` output
 10. `reports__save_report`
 11. `reports__list_reports`
 
 Wrong order examples:
 
 - `radar__build_comparison` before evidence collection
-- `reports__save_report` before markdown render
+- `reports__save_report` before the LLM has authored markdown from comparison output
 - calling `pypi` tools through `github__...` prefix
 
 ### Verification checklist
@@ -644,6 +648,8 @@ Wrong order examples:
 - Tool order follows the dependency chain above.
 - Report is saved under `week_04/tech_radar_outputs/`.
 - `list_reports` returns the saved file.
+- Saved report includes GitHub + PyPI evidence (stars, versions, latest release date) and
+  per-rank recommendations.
 
 ### Tests
 
