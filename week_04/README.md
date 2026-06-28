@@ -598,6 +598,11 @@ uv run python -m week_04.main --target tech_radar --agent --provider "GPT-4o min
   --ask "Find Python libraries for data validation in a backend service. Discover candidates first, evaluate the top 3 using GitHub and PyPI evidence, apply requirement-aware scoring for maintained, typed, production-ready libraries, save the report as py_validation_radar_2026, then list saved reports."
 ```
 
+```bash
+
+uv run python -m week_04.main --target tech_radar --agent --provider "DeepSeek V3" --ask "Помоги выбрать Python-библиотеку для валидации данных в продакшн-бэкенде. Найди несколько подходящих вариантов, сравни три лучших по доступным данным, оформи итоговый markdown-отчёт, сохрани его и покажи список сохранённых отчётов. Числовые оценки бери из результата сравнения, не пересчитывай и не придумывай их сам."
+```
+
 ### Expected log excerpt (agent-driven)
 
 ```text
