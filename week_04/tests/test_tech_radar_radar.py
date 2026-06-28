@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 from week_04.tech_radar.mcp_server_radar import (
     _normalize_enriched_candidate,
@@ -152,6 +153,52 @@ def test_build_comparison_exposes_llm_report_evidence_fields() -> None:
     assert isinstance(evidence["releases"]["items"], list)
     assert evidence["github"]["open_issues"] == 123
     assert evidence["releases"]["latest_uploaded_at"] == "2026-06-01T00:00:00+00:00"
+
+
+def test_build_comparison_does_not_collapse_to_default_scores() -> None:
+    now = datetime.now(UTC).isoformat()
+    requirements_json = extract_requirements("Need maintained, production-ready validation libs")
+    enriched = [
+        {
+            "label": "popular_fresh",
+            "repo": "owner/popular_fresh",
+            "package": "popular-fresh",
+            "package_guess": False,
+            "github": {"stargazers_count": 60000, "updated_at": now, "open_issues_count": 10},
+            "pypi": {"name": "popular-fresh", "version": "1.0.0", "requires_python": ">=3.10"},
+            "releases": {"items": [{"version": "1.0.0", "uploaded_at": now}]},
+        }
+    ]
+    response = json.loads(build_comparison(requirements_json, json.dumps({"candidates": enriched})))
+    comps = response["ranking"][0]["components"]
+    assert comps["maintenance_activity"] == 1.0
+    assert comps["community_signal"] == 1.0
+    assert comps["release_freshness"] == 1.0
+
+
+def test_build_comparison_tolerates_flat_evidence() -> None:
+    now = datetime.now(UTC).isoformat()
+    requirements_json = extract_requirements("Need maintained validation libs")
+    enriched = [
+        {
+            "label": "flat",
+            "full_name": "owner/flat",
+            "package": "flat",
+            "package_guess": False,
+            "stargazers_count": 12000,
+            "updated_at": now,
+            "open_issues_count": 5,
+            "version": "2.0.0",
+            "requires_python": ">=3.11",
+            "items": [{"version": "2.0.0", "uploaded_at": now}],
+        }
+    ]
+    response = json.loads(build_comparison(requirements_json, json.dumps({"candidates": enriched})))
+    evidence = response["ranking"][0]["evidence"]
+    assert evidence["repo"] == "owner/flat"
+    assert evidence["github"]["stars"] == 12000
+    assert evidence["pypi"]["version"] == "2.0.0"
+    assert response["ranking"][0]["components"]["community_signal"] == 0.8
 
 
 

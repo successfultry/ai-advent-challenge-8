@@ -29,7 +29,20 @@ _SYSTEM_TECH_RADAR = (
     "Do not call any other tool until you have received its result. "
     "Then follow this flow: search repos, normalize candidates, collect github and pypi evidence, "
     "build comparison, write markdown yourself, save report, list reports. "
-    "Use enriched candidates with strict fields and null for missing values. "
+    "When calling radar__build_comparison, pass enriched_candidates_json as "
+    '{"candidates": [ ... ]} where each candidate nests evidence under '
+    "github/readme/pypi/releases, for example: "
+    '{"label": "pydantic", "repo": "pydantic/pydantic", "package": "pydantic", '
+    '"package_guess": false, '
+    '"github": {"stargazers_count": 28134, "updated_at": "<iso>", "open_issues_count": 567, '
+    '"topics": []}, '
+    '"readme": {"excerpt": "<text>"}, '
+    '"pypi": {"name": "pydantic", "version": "2.13.4", "requires_python": ">=3.9", '
+    '"summary": "<text>", "classifiers": []}, '
+    '"releases": {"items": [{"version": "<v>", "uploaded_at": "<iso>"}]}}. '
+    "Copy real values from the github__ and pypi__ tool results; never null out evidence you have. "
+    "In the markdown report copy the score and component scores exactly from the "
+    "radar__build_comparison result; do not recompute or invent scores. "
     "If evidence is partial, continue and explain gaps. "
     "After radar__build_comparison, you MUST author the final markdown report yourself and pass it "
     "as reports__save_report(content=..., slug=...). "

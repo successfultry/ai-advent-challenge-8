@@ -105,51 +105,81 @@ def _related_pypi_name(expected: str, actual: str | None) -> bool:
     return normalize_token(expected) == normalize_token(actual)
 
 
+def _coalesce(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def _normalize_enriched_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    # Tolerate both nested evidence ({"github": {...}}) and flat tool outputs placed at
+    # the candidate top level, so scoring never silently collapses to defaults when the
+    # LLM assembles the enriched candidate in a slightly different shape.
     github = candidate.get("github") if isinstance(candidate.get("github"), dict) else {}
     readme = candidate.get("readme") if isinstance(candidate.get("readme"), dict) else {}
     pypi = candidate.get("pypi") if isinstance(candidate.get("pypi"), dict) else {}
     releases = candidate.get("releases") if isinstance(candidate.get("releases"), dict) else {}
-    release_items = releases.get("items") if isinstance(releases.get("items"), list) else []
+
+    release_items = _coalesce(
+        releases.get("items") if isinstance(releases.get("items"), list) else None,
+        candidate.get("items") if isinstance(candidate.get("items"), list) else None,
+        [],
+    )
     latest_release = (
         release_items[0] if release_items and isinstance(release_items[0], dict) else {}
     )
 
+    topics_src = _coalesce(github.get("topics"), candidate.get("topics"))
+    classifiers_src = _coalesce(pypi.get("classifiers"), candidate.get("classifiers"))
+
     return {
         "label": candidate.get("label"),
-        "repo": candidate.get("repo"),
+        "repo": _coalesce(candidate.get("repo"), candidate.get("full_name")),
         "package": candidate.get("package"),
         "package_guess": bool(candidate.get("package_guess", False)),
         "github": {
-            "stars": github.get("stars", github.get("stargazers_count")),
-            "updated_at": github.get("updated_at"),
-            "open_issues": github.get("open_issues", github.get("open_issues_count")),
-            "topics": github.get("topics") if isinstance(github.get("topics"), list) else [],
+            "stars": _coalesce(
+                github.get("stars"),
+                github.get("stargazers_count"),
+                candidate.get("stargazers_count"),
+            ),
+            "updated_at": _coalesce(github.get("updated_at"), candidate.get("updated_at")),
+            "open_issues": _coalesce(
+                github.get("open_issues"),
+                github.get("open_issues_count"),
+                candidate.get("open_issues_count"),
+            ),
+            "topics": topics_src if isinstance(topics_src, list) else [],
             "error": github.get("error"),
         },
         "readme": {
-            "excerpt": readme.get("excerpt"),
+            "excerpt": _coalesce(readme.get("excerpt"), candidate.get("excerpt")),
             "error": readme.get("error"),
         },
         "pypi": {
-            "version": pypi.get("version"),
-            "requires_python": pypi.get("requires_python"),
-            "name": pypi.get("name"),
-            "summary": pypi.get("summary"),
-            "classifiers": pypi.get("classifiers"),
-            "latest_release_version": pypi.get(
-                "latest_release_version", latest_release.get("version")
+            "version": _coalesce(pypi.get("version"), candidate.get("version")),
+            "requires_python": _coalesce(
+                pypi.get("requires_python"), candidate.get("requires_python")
             ),
-            "latest_release_uploaded_at": pypi.get(
-                "latest_release_uploaded_at", latest_release.get("uploaded_at")
+            "name": _coalesce(pypi.get("name"), candidate.get("pypi_name")),
+            "summary": _coalesce(pypi.get("summary"), candidate.get("summary")),
+            "classifiers": classifiers_src if isinstance(classifiers_src, list) else None,
+            "latest_release_version": _coalesce(
+                pypi.get("latest_release_version"), latest_release.get("version")
+            ),
+            "latest_release_uploaded_at": _coalesce(
+                pypi.get("latest_release_uploaded_at"), latest_release.get("uploaded_at")
             ),
             "error": pypi.get("error"),
         },
         "releases": {
             "items": release_items,
-            "latest_version": releases.get("latest_version", latest_release.get("version")),
-            "latest_uploaded_at": releases.get(
-                "latest_uploaded_at", latest_release.get("uploaded_at")
+            "latest_version": _coalesce(
+                releases.get("latest_version"), latest_release.get("version")
+            ),
+            "latest_uploaded_at": _coalesce(
+                releases.get("latest_uploaded_at"), latest_release.get("uploaded_at")
             ),
             "error": releases.get("error"),
         },
