@@ -17,4 +17,4 @@ RUN uv sync --frozen --no-dev
 
 COPY . .
 
-CMD ["uv", "run", "python", "-m", "week_04.market_watch.watcher", "--provider", "DeepSeek V3", "--interval", "60", "--window", "12h", "--lang", "both"]
+CMD ["uv", "run", "python", "-m", "week_04.market_watch.watcher", "--provider", "DeepSeek V3", "--interval", "43200", "--window", "12h", "--lang", "both"]
