@@ -125,3 +125,4 @@ def test_pdf_loader_error_path_is_graceful(tmp_path: Path) -> None:
     out = index_documents(source=source, strategy="fixed", db_path=db, dry_run=True)
     assert out.result.document_count == 0
     assert any("Skipping unreadable file" in warning for warning in out.warnings)
+    assert not db.exists()

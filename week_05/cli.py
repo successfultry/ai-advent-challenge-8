@@ -11,6 +11,14 @@ from week_05.indexer import PipelineOutput, index_documents
 DEFAULT_DB_PATH = Path("data/week_05/rag_index.sqlite")
 
 
+def _display_path(value: str | Path) -> str:
+    path = Path(value)
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return str(value)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Week 05 Day 21 - RAG indexing pipeline")
     parser.add_argument("--db", default=str(DEFAULT_DB_PATH), help="SQLite database path")
@@ -36,8 +44,8 @@ def _parse_args() -> argparse.Namespace:
 def _print_index_result(out: PipelineOutput) -> None:
     approx_tokens = max(1, out.result.approx_chars // 4) if out.result.approx_chars else 0
     print(f"\n[{out.result.strategy}] run_id={out.result.run_id}")
-    print(f"source: {out.result.source_root}")
-    print(f"db: {out.result.db_path}")
+    print(f"source: {_display_path(out.result.source_root)}")
+    print(f"db: {_display_path(out.result.db_path)}")
     print(
         f"documents={out.result.document_count} chunks={out.result.chunk_count} "
         f"missing_embeddings={out.result.missing_embedding_count}"
@@ -76,14 +84,15 @@ def _print_strategy_report(store: IndexStore, run_id: str, label: str) -> None:
     print(f"  sources={len(per_source)}")
     top_sources = sorted(per_source.items(), key=lambda p: (-p[1], p[0]))[:5]
     for source, count in top_sources:
-        print(f"    - {source}: {count}")
+        print(f"    - {_display_path(source)}: {count}")
 
     print("  samples:")
     sample_rows = rows[:3]
     for row in sample_rows:
         text = str(row["text"]).replace("\n", " ").strip()
         preview = text[:120] + ("..." if len(text) > 120 else "")
-        print(f"    - section={row['section']} source={row['source']} text='{preview}'")
+        source = _display_path(row["source"])
+        print(f"    - section={row['section']} source={source} text='{preview}'")
 
 
 def _command_index(args: argparse.Namespace) -> None:
@@ -156,7 +165,7 @@ def _command_stats(args: argparse.Namespace) -> None:
     store = IndexStore(db.resolve())
     store.init()
     stats = store.stats()
-    print(json.dumps({"db": str(db.resolve()), **stats}, ensure_ascii=False, indent=2))
+    print(json.dumps({"db": _display_path(db), **stats}, ensure_ascii=False, indent=2))
 
 
 def run() -> None:

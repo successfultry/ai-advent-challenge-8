@@ -103,8 +103,6 @@ def index_documents(
     provider: EmbeddingProvider | None = None,
 ) -> PipelineOutput:
     source = source.resolve()
-    store = IndexStore(db_path.resolve())
-    store.init()
     documents, warnings = load_documents(source)
 
     chunker = _chunker_for(strategy)
@@ -138,6 +136,8 @@ def index_documents(
         )
         return PipelineOutput(result=result, warnings=warnings, stats=chunk_stats)
 
+    store = IndexStore(db_path.resolve())
+    store.init()
     emb_provider = provider or OpenAIEmbeddingProvider(model=embedding_model)
     embedded_rows: list[EmbeddedChunk] = []
     cache_hits = 0

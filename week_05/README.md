@@ -171,47 +171,48 @@ small local corpora. FAISS is not needed to satisfy Day 21.
 
 ### Run (bash)
 
-Dry run first: no API calls, only load/chunk/count.
+Clean local demo DB:
 
 ```bash
-uv run python -m week_05.main compare --source ".cursor/docs" --dry-run
+rm -f data/week_05/rag_index.sqlite
 ```
 
-Real indexing with default OpenAI embeddings:
+Run both strategies and compare. This does real indexing, embedding generation, SQLite writes,
+and sample output:
 
 ```bash
-uv run python -m week_05.main index --source ".cursor/docs" --strategy fixed
-uv run python -m week_05.main index --source ".cursor/docs" --strategy structure
-```
-
-Run both strategies and compare:
-
-```bash
-uv run python -m week_05.main compare --source ".cursor/docs"
-```
-
-Use the stronger OpenAI embedding model:
-
-```bash
-uv run python -m week_05.main compare --source ".cursor/docs" --model text-embedding-3-large
-```
-
-Cheap test run:
-
-```bash
-uv run python -m week_05.main compare --source ".cursor/docs" --limit 120
-```
-
-Index a folder containing a PDF:
-
-```bash
-uv run python -m week_05.main compare --source "C:/path/to/folder_with_pdf_and_docs"
+uv run python -m week_05.main compare --source "week_05/corpus"
 ```
 
 Print DB stats:
 
 ```bash
-uv run python -m week_05.main stats --db "data/week_05/rag_index.sqlite"
+uv run python -m week_05.main --db "data/week_05/rag_index.sqlite" stats
+```
+
+Index one strategy at a time (optional):
+
+```bash
+uv run python -m week_05.main index --source "week_05/corpus" --strategy fixed
+uv run python -m week_05.main index --source "week_05/corpus" --strategy structure
+```
+
+Use the stronger OpenAI embedding model:
+
+```bash
+uv run python -m week_05.main compare --source "week_05/corpus" --model text-embedding-3-large
+```
+
+Cheap test run:
+
+```bash
+uv run python -m week_05.main compare --source "week_05/corpus" --limit 120
+```
+
+Optional dry run: no API calls and no SQLite writes:
+
+```bash
+uv run python -m week_05.main compare --source "week_05/corpus" --dry-run
 ```
 
 ### What To Verify
@@ -220,7 +221,7 @@ uv run python -m week_05.main stats --db "data/week_05/rag_index.sqlite"
 - `chunks=N` is non-zero for both strategies.
 - `missing_embeddings=0` on a healthy real run.
 - `cache_hits` increases on repeated runs with the same model/text.
-- SQLite DB exists at `data/week_05/rag_index.sqlite`.
+- SQLite DB exists at `data/week_05/rag_index.sqlite` after a real run.
 - A PDF source appears in output when the source folder includes `.pdf`.
 - Fixed and structure strategies produce different chunk counts/average lengths.
 
@@ -231,23 +232,25 @@ uv run python -m week_05.main stats --db "data/week_05/rag_index.sqlite"
 - `missing_embeddings > 0` -> transient provider/API issue; rerun command (cache will reuse finished
   chunks).
 - `chunks=0` -> source path has no supported non-empty files (`.md`, `.txt`, `.py`, `.pdf`).
+- `stats` rejects `--db` -> put global `--db` before the command:
+  `uv run python -m week_05.main --db "data/week_05/rag_index.sqlite" stats`.
 
 ### Example Output
 
-Dry-run shape:
+Real compare shape:
 
 ```text
-Comparing strategies for source=.cursor/docs dry_run=True limit=60
+Comparing strategies for source=week_05/corpus dry_run=False limit=None
 
 [fixed] run_id=fixed-...
-documents=7 chunks=60 missing_embeddings=0
-cache_hits=0 api_calls=0 avg_chunk_chars=1197.3
-estimated_volume: chars=23946 approx_tokens=5986
+documents=10 chunks=236 missing_embeddings=0
+cache_hits=0 api_calls=3 avg_chunk_chars=1174.5
+estimated_volume: chars=277183 approx_tokens=69295
 
 [structure] run_id=structure-...
-documents=7 chunks=60 missing_embeddings=0
-cache_hits=0 api_calls=0 avg_chunk_chars=690.5
-estimated_volume: chars=13811 approx_tokens=3452
+documents=10 chunks=330 missing_embeddings=0
+cache_hits=1 api_calls=4 avg_chunk_chars=729.0
+estimated_volume: chars=240579 approx_tokens=60144
 
 === Strategy comparison ===
 fixed: predictable chunk windows, can split through section boundaries.
@@ -263,7 +266,7 @@ structure: semantically aligned sections, but chunk sizes are less uniform.
 - OpenAI embeddings with batch calls and retry.
 - SQLite persistence.
 - Embedding cache.
-- `--dry-run` and `--limit`.
+- `--dry-run` and `--limit` (`--dry-run` does not touch SQLite).
 - Strategy comparison CLI.
 - Tests and ruff validation.
 
@@ -284,4 +287,4 @@ Day 21 only needs the local document index with embeddings and metadata.
 
 | Day | Task | Commands | Code | Status | Video |
 |-----|------|----------|------|--------|-------|
-| 21 | Local document indexing pipeline: ingestion (`md/txt/py/pdf`), fixed + structure chunking, embeddings, SQLite index, metadata, strategy comparison | `-m week_05.main index --source "...\" --strategy fixed\|structure`, `-m week_05.main compare --source "...\" [--dry-run] [--limit N] [--model ...]`, `-m week_05.main stats --db ...` | `documents.py`, `chunking.py`, `embeddings.py`, `index_store.py`, `indexer.py`, `cli.py`, `main.py` | done | _link_ |
+| 21 | Local document indexing pipeline: ingestion (`md/txt/py/pdf`), fixed + structure chunking, embeddings, SQLite index, metadata, strategy comparison | `-m week_05.main compare --source "week_05/corpus"`, `-m week_05.main --db "data/week_05/rag_index.sqlite" stats` | `documents.py`, `chunking.py`, `embeddings.py`, `index_store.py`, `indexer.py`, `cli.py`, `main.py` | done | _link_ |
