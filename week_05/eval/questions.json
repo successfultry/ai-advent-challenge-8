@@ -1,62 +1,62 @@
 [
   {
     "id": "q01",
-    "question": "Что такое top_p и чем он отличается от temperature?",
-    "expected": ["top_p", "temperature", "sampling"],
+    "question": "Чем max_tokens отличается от context window согласно материалам?",
+    "expected": ["max_tokens", "context", "output", "длину"],
     "expected_sources": ["lecture-01-notes.md"]
   },
   {
     "id": "q02",
-    "question": "Зачем нужен системный промпт и как он влияет на ответ модели?",
-    "expected": ["system prompt", "роль", "инструкция"],
+    "question": "Что такое top_p (nucleus sampling) и когда его уменьшать?",
+    "expected": ["top_p", "nucleus", "вероятность", "предсказуемый"],
     "expected_sources": ["lecture-01-notes.md"]
   },
   {
     "id": "q03",
-    "question": "Что такое контекстное окно и почему важна его длина?",
-    "expected": ["контекст", "окно", "токены"],
+    "question": "Какие четыре управляемых блока агента выделяются во второй лекции?",
+    "expected": ["context", "memory", "planning", "tool"],
     "expected_sources": ["lecture-02-notes.md"]
   },
   {
     "id": "q04",
-    "question": "Чем отличаются short-term и long-term memory в агенте?",
-    "expected": ["short-term", "long-term", "memory"],
+    "question": "Чем stateful-агент отличается от stateless и где живёт state?",
+    "expected": ["stateful", "stateless", "state", "внешн"],
     "expected_sources": ["lecture-03-notes.md"]
   },
   {
     "id": "q05",
-    "question": "Что такое MCP и зачем он нужен агентам?",
-    "expected": ["MCP", "tools", "agent"],
+    "question": "Что такое MCP и кто его разработал?",
+    "expected": ["MCP", "Model Context Protocol", "протокол", "Anthropic"],
     "expected_sources": ["lecture-04-notes.md"]
   },
   {
     "id": "q06",
-    "question": "Что такое RAG и из каких шагов состоит его базовый pipeline?",
-    "expected": ["RAG", "retrieval", "generation", "chunks", "embeddings"],
+    "question": "Из каких шагов состоит базовый pipeline RAG?",
+    "expected": ["retrieval", "augmentation", "generation", "chunks"],
     "expected_sources": ["lecture-05-notes.md"]
   },
   {
     "id": "q07",
-    "question": "Почему chunking strategy влияет на качество retrieval?",
-    "expected": ["chunking", "retrieval", "granularity"],
+    "question": "Какие стратегии chunking описаны и в чём их минусы?",
+    "expected": ["fixed-size", "overlap", "semantic", "смысл"],
     "expected_sources": ["lecture-05-notes.md"]
   },
   {
     "id": "q08",
-    "question": "Для чего нужен embedding cache при индексации документов?",
-    "expected": ["cache", "повторные", "api"],
+    "question": "Что такое cosine similarity и что означают значения близко к 1 и к 0?",
+    "expected": ["cosine", "similarity", "смысл", "вектор"],
     "expected_sources": ["lecture-05-notes.md"]
   },
   {
     "id": "q09",
-    "question": "Почему SQLite подходит для локального прототипа RAG на малом корпусе?",
-    "expected": ["SQLite", "локальный", "прототип"],
+    "question": "Чем bi-encoder отличается от cross-encoder при reranking?",
+    "expected": ["bi-encoder", "cross-encoder", "reranking", "точн"],
     "expected_sources": ["lecture-05-notes.md"]
   },
   {
     "id": "q10",
-    "question": "Что делать, если в retrieval нет релевантного контекста для вопроса?",
-    "expected": ["insufficient", "context", "fallback"],
+    "question": "Что делать при пустом retrieval и какие метрики качества RAG есть?",
+    "expected": ["fallback", "context relevance", "faithfulness", "не найдено"],
     "expected_sources": ["lecture-05-notes.md"]
   }
 ]
