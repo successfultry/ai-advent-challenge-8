@@ -317,13 +317,20 @@ Also ship a 10-question control set and compare quality (`plain` vs `rag`).
 
 ### Run (bash)
 
-Compare `plain` vs `rag` on one question:
+Interactive mode: run without `--question`, then type questions live (empty line / `exit` to stop).
+Each question prints `plain` vs `rag` with citations:
+
+```bash
+uv run python -m week_05.main ask --mode both --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5
+```
+
+One-shot mode: pass `--question` to answer a single question and exit:
 
 ```bash
 uv run python -m week_05.main ask --mode both --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --question "Что такое top_p?"
 ```
 
-Run the full 10-question evaluation:
+Run the full 10-question evaluation (reads `week_05/eval/questions.json`, runs all 10 at once):
 
 ```bash
 uv run python -m week_05.main eval --provider "GPT-4o mini" --source "week_05/corpus"
@@ -353,6 +360,7 @@ Metrics:
 
 ### What To Verify
 
+- `ask` without `--question` opens an interactive prompt and answers each typed question.
 - `ask --mode both` prints both answers and shows retrieval summary for RAG.
 - RAG output includes citations with `chunk_id`, `source`, `section`, `score`.
 - `eval` prints per-question metrics and aggregate metrics.
@@ -371,15 +379,20 @@ Metrics:
 
 ```text
 Ask mode=both provider=GPT-4o mini strategy=structure top_k=5 source=week_05/corpus
+Interactive mode. Type a question, empty line or 'exit'/'quit' to stop.
+
+question> Что такое top_p?
 
 [plain] model=gpt-4o-mini latency_s=1.14
 ...plain answer...
 
 [rag] model=gpt-4o-mini latency_s=1.26
 ...rag answer...
-retrieval: run_id=structure-... model=text-embedding-3-small retrieved=5 avg_score=0.8123
+retrieval: run_id=structure-... model=text-embedding-3-small retrieved=5 avg_score=0.3700
 citations:
-  - 9f3a... source=week_05/corpus/lecture-05-notes.md section=heading:RAG score=0.9122
+  - 9f3a... source=week_05/corpus/lecture-05-notes.md section=heading:RAG score=0.3928
+
+question> exit
 ```
 
 ```text

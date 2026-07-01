@@ -42,7 +42,11 @@ def _parse_args() -> argparse.Namespace:
     sub.add_parser("stats", help="Print overall DB stats")
 
     p_ask = sub.add_parser("ask", help="Ask in plain/rag/both modes")
-    p_ask.add_argument("--question", required=True, help="Question to answer")
+    p_ask.add_argument(
+        "--question",
+        default=None,
+        help="Question to answer; omit to enter interactive mode",
+    )
     p_ask.add_argument("--mode", choices=["plain", "rag", "both"], default="both")
     p_ask.add_argument("--provider", default="GPT-4o mini")
     p_ask.add_argument("--source", default="week_05/corpus")
@@ -226,18 +230,10 @@ def _print_answer_block(
     print(answer)
 
 
-def _command_ask(args: argparse.Namespace) -> None:
-    question = str(args.question).strip()
-    if not question:
-        raise ValueError("Question must not be empty.")
-
+def _answer_once(args: argparse.Namespace, question: str) -> None:
     source = Path(args.source)
     db = Path(args.db)
     mode = args.mode
-    print(
-        f"Ask mode={mode} provider={args.provider} strategy={args.strategy} top_k={args.top_k} "
-        f"source={_display_path(source)}"
-    )
     if mode in {"plain", "both"}:
         plain = answer_plain(
             question,
@@ -274,6 +270,29 @@ def _command_ask(args: argparse.Namespace) -> None:
                 )
         else:
             print("citations: none")
+
+
+def _command_ask(args: argparse.Namespace) -> None:
+    source = Path(args.source)
+    print(
+        f"Ask mode={args.mode} provider={args.provider} strategy={args.strategy} "
+        f"top_k={args.top_k} source={_display_path(source)}"
+    )
+
+    if args.question is not None and str(args.question).strip():
+        _answer_once(args, str(args.question).strip())
+        return
+
+    print("Interactive mode. Type a question, empty line or 'exit'/'quit' to stop.")
+    while True:
+        try:
+            question = input("\nquestion> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not question or question.lower() in {"exit", "quit"}:
+            break
+        _answer_once(args, question)
 
 
 def _command_eval(args: argparse.Namespace) -> None:
