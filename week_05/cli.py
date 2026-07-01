@@ -5,8 +5,10 @@ import json
 from pathlib import Path
 
 from week_05.embeddings import DEFAULT_EMBEDDING_MODEL
+from week_05.eval import run_eval
 from week_05.index_store import IndexStore
 from week_05.indexer import PipelineOutput, index_documents
+from week_05.rag_qa import answer_plain, answer_rag
 
 DEFAULT_DB_PATH = Path("data/week_05/rag_index.sqlite")
 
@@ -20,7 +22,7 @@ def _display_path(value: str | Path) -> str:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Week 05 Day 21 - RAG indexing pipeline")
+    parser = argparse.ArgumentParser(description="Week 05 - indexing + first RAG query")
     parser.add_argument("--db", default=str(DEFAULT_DB_PATH), help="SQLite database path")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -38,7 +40,49 @@ def _parse_args() -> argparse.Namespace:
     p_compare.add_argument("--limit", type=int, default=None)
 
     sub.add_parser("stats", help="Print overall DB stats")
+
+    p_ask = sub.add_parser("ask", help="Ask in plain/rag/both modes")
+    p_ask.add_argument("--question", required=True, help="Question to answer")
+    p_ask.add_argument("--mode", choices=["plain", "rag", "both"], default="both")
+    p_ask.add_argument("--provider", default="GPT-4o mini")
+    p_ask.add_argument("--source", default="week_05/corpus")
+    p_ask.add_argument("--strategy", choices=["fixed", "structure"], default="structure")
+    p_ask.add_argument("--top-k", type=int, default=5)
+    p_ask.add_argument("--temperature", type=float, default=0.2)
+    p_ask.add_argument("--max-tokens", type=int, default=500)
+
+    p_eval = sub.add_parser("eval", help="Run 10-question plain vs rag evaluation")
+    p_eval.add_argument("--dataset", default="week_05/eval/questions.json")
+    p_eval.add_argument("--output", default="week_05/eval/results.json")
+    p_eval.add_argument("--provider", default="GPT-4o mini")
+    p_eval.add_argument("--source", default="week_05/corpus")
+    p_eval.add_argument("--strategy", choices=["fixed", "structure"], default="structure")
+    p_eval.add_argument("--top-k", type=int, default=5)
+    p_eval.add_argument("--limit", type=int, default=None)
+    p_eval.add_argument("--temperature", type=float, default=0.2)
+    p_eval.add_argument("--max-tokens", type=int, default=500)
     return parser.parse_args()
+
+
+def _usage_to_dict(usage: object | None) -> dict[str, int]:
+    if usage is None:
+        return {}
+    if isinstance(usage, dict):
+        raw = usage
+    elif hasattr(usage, "model_dump"):
+        raw = usage.model_dump()  # type: ignore[assignment]
+    else:
+        raw = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", None),
+            "completion_tokens": getattr(usage, "completion_tokens", None),
+            "total_tokens": getattr(usage, "total_tokens", None),
+        }
+    payload: dict[str, int] = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = raw.get(key)
+        if isinstance(value, int):
+            payload[key] = value
+    return payload
 
 
 def _print_index_result(out: PipelineOutput) -> None:
@@ -168,6 +212,108 @@ def _command_stats(args: argparse.Namespace) -> None:
     print(json.dumps({"db": _display_path(db), **stats}, ensure_ascii=False, indent=2))
 
 
+def _print_answer_block(
+    label: str,
+    answer: str,
+    usage: object | None,
+    latency_s: float,
+    model: str,
+) -> None:
+    usage_payload = _usage_to_dict(usage)
+    print(f"\n[{label}] model={model} latency_s={latency_s:.2f}")
+    if usage_payload:
+        print(f"usage={json.dumps(usage_payload, ensure_ascii=False)}")
+    print(answer)
+
+
+def _command_ask(args: argparse.Namespace) -> None:
+    question = str(args.question).strip()
+    if not question:
+        raise ValueError("Question must not be empty.")
+
+    source = Path(args.source)
+    db = Path(args.db)
+    mode = args.mode
+    print(
+        f"Ask mode={mode} provider={args.provider} strategy={args.strategy} top_k={args.top_k} "
+        f"source={_display_path(source)}"
+    )
+    if mode in {"plain", "both"}:
+        plain = answer_plain(
+            question,
+            args.provider,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+        )
+        _print_answer_block("plain", plain.answer, plain.usage, plain.latency_s, plain.model)
+
+    if mode in {"rag", "both"}:
+        rag = answer_rag(
+            question,
+            args.provider,
+            db,
+            source,
+            strategy=args.strategy,
+            top_k=args.top_k,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+        )
+        _print_answer_block("rag", rag.answer, rag.usage, rag.latency_s, rag.model)
+        print(
+            "retrieval: "
+            f"run_id={rag.retrieval_run_id} model={rag.retrieval_embedding_model} "
+            f"retrieved={rag.retrieved_count} avg_score={rag.avg_retrieval_score:.4f}"
+        )
+        if rag.citations:
+            print("citations:")
+            for citation in rag.citations:
+                print(
+                    "  - "
+                    f"{citation.chunk_id} source={_display_path(citation.source)} "
+                    f"section={citation.section} score={citation.score:.4f}"
+                )
+        else:
+            print("citations: none")
+
+
+def _command_eval(args: argparse.Namespace) -> None:
+    db = Path(args.db)
+    source = Path(args.source)
+    dataset = Path(args.dataset)
+    output = Path(args.output)
+    report = run_eval(
+        dataset_path=dataset,
+        output_path=output,
+        provider_name=args.provider,
+        db_path=db,
+        source_root=source,
+        strategy=args.strategy,
+        top_k=args.top_k,
+        limit=args.limit,
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+    )
+    print(
+        f"Eval provider={report.provider} strategy={report.strategy} "
+        f"questions={report.summary.questions_run}/{report.summary.questions_total}"
+    )
+    print(
+        "summary: "
+        f"plain_kw={report.summary.avg_keyword_recall_plain:.3f} "
+        f"rag_kw={report.summary.avg_keyword_recall_rag:.3f} "
+        f"rag_source_hit={report.summary.rag_source_hit_rate:.3f}"
+    )
+    print("per-question:")
+    for item in report.results:
+        print(
+            "  - "
+            f"{item.id}: plain={item.keyword_recall_plain:.2f} "
+            f"rag={item.keyword_recall_rag:.2f} source_hit={item.source_hit} "
+            f"retrieved={item.retrieved_count}"
+        )
+    print(f"report: {_display_path(output)}")
+
+
 def run() -> None:
     args = _parse_args()
     if args.command == "index":
@@ -176,3 +322,7 @@ def run() -> None:
         _command_compare(args)
     elif args.command == "stats":
         _command_stats(args)
+    elif args.command == "ask":
+        _command_ask(args)
+    elif args.command == "eval":
+        _command_eval(args)

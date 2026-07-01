@@ -1,0 +1,62 @@
+[
+  {
+    "id": "q01",
+    "question": "Что такое top_p и чем он отличается от temperature?",
+    "expected": ["top_p", "temperature", "sampling"],
+    "expected_sources": ["lecture-01-notes.md"]
+  },
+  {
+    "id": "q02",
+    "question": "Зачем нужен системный промпт и как он влияет на ответ модели?",
+    "expected": ["system prompt", "роль", "инструкция"],
+    "expected_sources": ["lecture-01-notes.md"]
+  },
+  {
+    "id": "q03",
+    "question": "Что такое контекстное окно и почему важна его длина?",
+    "expected": ["контекст", "окно", "токены"],
+    "expected_sources": ["lecture-02-notes.md"]
+  },
+  {
+    "id": "q04",
+    "question": "Чем отличаются short-term и long-term memory в агенте?",
+    "expected": ["short-term", "long-term", "memory"],
+    "expected_sources": ["lecture-03-notes.md"]
+  },
+  {
+    "id": "q05",
+    "question": "Что такое MCP и зачем он нужен агентам?",
+    "expected": ["MCP", "tools", "agent"],
+    "expected_sources": ["lecture-04-notes.md"]
+  },
+  {
+    "id": "q06",
+    "question": "Что такое RAG и из каких шагов состоит его базовый pipeline?",
+    "expected": ["RAG", "retrieval", "generation", "chunks", "embeddings"],
+    "expected_sources": ["lecture-05-notes.md"]
+  },
+  {
+    "id": "q07",
+    "question": "Почему chunking strategy влияет на качество retrieval?",
+    "expected": ["chunking", "retrieval", "granularity"],
+    "expected_sources": ["lecture-05-notes.md"]
+  },
+  {
+    "id": "q08",
+    "question": "Для чего нужен embedding cache при индексации документов?",
+    "expected": ["cache", "повторные", "api"],
+    "expected_sources": ["lecture-05-notes.md"]
+  },
+  {
+    "id": "q09",
+    "question": "Почему SQLite подходит для локального прототипа RAG на малом корпусе?",
+    "expected": ["SQLite", "локальный", "прототип"],
+    "expected_sources": ["lecture-05-notes.md"]
+  },
+  {
+    "id": "q10",
+    "question": "Что делать, если в retrieval нет релевантного контекста для вопроса?",
+    "expected": ["insufficient", "context", "fallback"],
+    "expected_sources": ["lecture-05-notes.md"]
+  }
+]
