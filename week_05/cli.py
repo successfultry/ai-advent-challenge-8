@@ -239,6 +239,121 @@ def _print_answer_block(
     print(answer)
 
 
+def _ask_settings_line(args: argparse.Namespace, source: Path) -> str:
+    return (
+        f"Ask mode={args.mode} provider={args.provider} strategy={args.strategy} "
+        f"top_k={args.top_k} top_k_before={args.top_k_before} "
+        f"min_similarity={args.min_similarity} mmr={args.use_mmr} "
+        f"rewrite={args.rewrite_query} source={_display_path(source)}"
+    )
+
+
+def _print_interactive_help() -> None:
+    print(
+        "\nInteractive commands:\n"
+        "  :help                      show this help\n"
+        "  :show                      show current settings\n"
+        "  :provider <name>           set generation provider\n"
+        "  :strategy fixed|structure  switch retrieval strategy\n"
+        "  :mode plain|rag|both       switch answer mode\n"
+        "  :top-k <int>               set final top-k chunks\n"
+        "  :top-k-before <int|none>   set recall stage size\n"
+        "  :min-similarity <float>    set threshold (e.g. 0.35)\n"
+        "  :mmr on|off                toggle MMR diversity\n"
+        "  :rewrite on|off            toggle query rewrite\n"
+        "  :reset                     reset settings to session defaults\n"
+        "  exit / quit / empty line   stop interactive mode\n"
+    )
+
+
+def _parse_bool_toggle(raw: str) -> bool:
+    normalized = raw.strip().lower()
+    if normalized in {"on", "true", "1", "yes", "y"}:
+        return True
+    if normalized in {"off", "false", "0", "no", "n"}:
+        return False
+    raise ValueError("Expected on/off.")
+
+
+def _apply_interactive_command(
+    args: argparse.Namespace,
+    original: dict[str, object],
+    source: Path,
+    command_line: str,
+) -> bool:
+    payload = command_line[1:].strip()
+    if not payload:
+        _print_interactive_help()
+        return True
+
+    parts = payload.split(maxsplit=1)
+    command = parts[0].lower()
+    value = parts[1].strip() if len(parts) > 1 else ""
+
+    if command == "help":
+        _print_interactive_help()
+        return True
+    if command == "show":
+        print(_ask_settings_line(args, source))
+        return True
+    if command == "reset":
+        args.provider = str(original["provider"])
+        args.strategy = str(original["strategy"])
+        args.mode = str(original["mode"])
+        args.top_k = int(original["top_k"])
+        args.top_k_before = (
+            int(original["top_k_before"]) if original["top_k_before"] is not None else None
+        )
+        args.min_similarity = float(original["min_similarity"])
+        args.use_mmr = bool(original["use_mmr"])
+        args.rewrite_query = bool(original["rewrite_query"])
+        print(f"Settings reset. {_ask_settings_line(args, source)}")
+        return True
+
+    try:
+        if command == "provider":
+            if not value:
+                raise ValueError("Expected provider name.")
+            args.provider = value
+        elif command == "strategy":
+            if value not in {"fixed", "structure"}:
+                raise ValueError("Expected fixed|structure.")
+            args.strategy = value
+        elif command == "mode":
+            if value not in {"plain", "rag", "both"}:
+                raise ValueError("Expected plain|rag|both.")
+            args.mode = value
+        elif command == "top-k":
+            parsed = int(value)
+            if parsed < 0:
+                raise ValueError("top-k must be >= 0.")
+            args.top_k = parsed
+        elif command == "top-k-before":
+            if value.lower() == "none":
+                args.top_k_before = None
+            else:
+                parsed = int(value)
+                if parsed < 0:
+                    raise ValueError("top-k-before must be >= 0 or none.")
+                args.top_k_before = parsed
+        elif command == "min-similarity":
+            args.min_similarity = float(value)
+        elif command == "mmr":
+            args.use_mmr = _parse_bool_toggle(value)
+        elif command == "rewrite":
+            args.rewrite_query = _parse_bool_toggle(value)
+        else:
+            print(f"Unknown command: {command_line}")
+            _print_interactive_help()
+            return True
+    except (TypeError, ValueError) as exc:
+        print(f"Invalid command value: {exc}")
+        return True
+
+    print(f"Updated. {_ask_settings_line(args, source)}")
+    return True
+
+
 def _answer_once(args: argparse.Namespace, question: str) -> None:
     source = Path(args.source)
     db = Path(args.db)
@@ -287,18 +402,24 @@ def _answer_once(args: argparse.Namespace, question: str) -> None:
 
 def _command_ask(args: argparse.Namespace) -> None:
     source = Path(args.source)
-    print(
-        f"Ask mode={args.mode} provider={args.provider} strategy={args.strategy} "
-        f"top_k={args.top_k} top_k_before={args.top_k_before} "
-        f"min_similarity={args.min_similarity} mmr={args.use_mmr} "
-        f"rewrite={args.rewrite_query} source={_display_path(source)}"
-    )
+    print(_ask_settings_line(args, source))
 
     if args.question is not None and str(args.question).strip():
         _answer_once(args, str(args.question).strip())
         return
 
-    print("Interactive mode. Type a question, empty line or 'exit'/'quit' to stop.")
+    print("Interactive mode. Type :help for commands.")
+    print("Type a question, empty line or 'exit'/'quit' to stop.")
+    original = {
+        "provider": args.provider,
+        "strategy": args.strategy,
+        "mode": args.mode,
+        "top_k": args.top_k,
+        "top_k_before": args.top_k_before,
+        "min_similarity": args.min_similarity,
+        "use_mmr": args.use_mmr,
+        "rewrite_query": args.rewrite_query,
+    }
     while True:
         try:
             question = input("\nquestion> ").strip()
@@ -307,6 +428,9 @@ def _command_ask(args: argparse.Namespace) -> None:
             break
         if not question or question.lower() in {"exit", "quit"}:
             break
+        if question.startswith(":"):
+            _apply_interactive_command(args, original, source, question)
+            continue
         _answer_once(args, question)
 
 
@@ -316,6 +440,11 @@ def _command_eval(args: argparse.Namespace) -> None:
     dataset = Path(args.dataset)
     output = Path(args.output)
     if args.compare:
+        improved_rewrite = args.rewrite_query
+        improved_mmr = args.use_mmr
+        if not improved_rewrite and not improved_mmr:
+            improved_rewrite = True
+            improved_mmr = True
         profiles = [
             EvalProfileConfig(name="baseline", top_k=args.top_k),
             EvalProfileConfig(
@@ -323,8 +452,8 @@ def _command_eval(args: argparse.Namespace) -> None:
                 top_k=args.top_k,
                 top_k_before=args.top_k_before if args.top_k_before is not None else 20,
                 min_similarity=args.min_similarity if args.min_similarity > -1.0 else 0.35,
-                use_mmr=args.use_mmr,
-                rewrite_query=True,
+                use_mmr=improved_mmr,
+                rewrite_query=improved_rewrite,
             ),
         ]
         comparison = run_eval_comparison(

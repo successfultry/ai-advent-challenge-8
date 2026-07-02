@@ -95,9 +95,10 @@ def _rewrite_query(
         {
             "role": "system",
             "content": (
-                "Rewrite the user question for semantic search over Russian lecture notes "
-                "about LLMs, RAG, MCP, embeddings, chunking, and retrieval. "
-                "Add 3-5 relevant domain terms. Return ONLY the rewritten query."
+                "Rewrite the user question into a short focused search query. "
+                "Keep the key terms from the question itself and add at most 2-3 close "
+                "synonyms or directly related terms. Do NOT introduce unrelated topics. "
+                "Keep it concise. Return ONLY the rewritten query."
             ),
         },
         {"role": "user", "content": f"Question: {question}"},

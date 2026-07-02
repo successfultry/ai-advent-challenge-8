@@ -57,7 +57,7 @@ def _mmr_select(
     candidates: list[_ScoredChunk],
     *,
     top_k: int,
-    lambda_relevance: float = 0.7,
+    lambda_relevance: float = 0.85,
 ) -> list[_ScoredChunk]:
     if top_k <= 0 or not candidates:
         return []

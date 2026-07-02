@@ -432,6 +432,23 @@ Improved Day 23 run (rewrite + threshold + mmr):
 uv run python -m week_05.main ask --mode rag --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.35 --use-mmr --rewrite-query --question "Что такое context management?"
 ```
 
+Improved Day 23 interactive run with runtime toggles:
+
+```bash
+uv run python -m week_05.main ask --mode rag --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure 
+```
+
+Inside interactive mode:
+
+```text
+:help
+:top-k-before 20
+:min-similarity 0.35
+:mmr on
+:rewrite on
+Что такое context management?
+```
+
 Compare baseline vs improved on the same dataset:
 
 ```bash
@@ -441,6 +458,9 @@ uv run python -m week_05.main eval --provider "GPT-4o mini" --source "week_05/co
 ### What To Verify
 
 - `ask` goes through `agent.py` modes (`plain` / `rag` / `both`) and keeps Day 22 defaults.
+- Interactive `ask` supports runtime commands (`:help`, `:show`, `:mode`, `:top-k`,
+  `:top-k-before`, `:min-similarity`, `:mmr`, `:rewrite`, `:provider`, `:strategy`, `:reset`)
+  without restart.
 - RAG output prints diagnostics:
   - `before`
   - `after_threshold`
