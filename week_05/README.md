@@ -280,10 +280,7 @@ structure: semantically aligned sections, but chunk sizes are less uniform.
 
 ### Not Done
 
-- No answer generation.
-- No chat agent.
 - No FAISS.
-- No reranking.
 - No hybrid search.
 - No Ollama embedding provider yet.
 
@@ -404,9 +401,74 @@ Day 22 keyword recall is a coarse heuristic (keyword overlap), not semantic grad
 
 ---
 
+## Day 23 — Reranking and Filtering
+
+### Goal
+
+Improve RAG retrieval quality with a second-stage filter/rerank step plus query rewrite, then
+compare baseline vs improved quality.
+
+### Architecture
+
+- Agent orchestration: `week_05/agent.py` with modes `plain` / `rag` / `both`.
+- Retrieval stage 1 (`top_k_before`): broad recall from SQLite cosine search.
+- Retrieval stage 2:
+  - threshold filter (`min_similarity`)
+  - optional MMR diversity (`--use-mmr`)
+  - final `top_k` for prompt context
+- Optional query rewrite (`--rewrite-query`) using the same generation provider as `--provider`.
+
+### Run (bash)
+
+Baseline Day 22-like run:
+
+```bash
+uv run python -m week_05.main ask --mode rag --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --question "Что такое context management?"
+```
+
+Improved Day 23 run (rewrite + threshold + mmr):
+
+```bash
+uv run python -m week_05.main ask --mode rag --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.35 --use-mmr --rewrite-query --question "Что такое context management?"
+```
+
+Compare baseline vs improved on the same dataset:
+
+```bash
+uv run python -m week_05.main eval --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.35 --use-mmr --compare
+```
+
+### What To Verify
+
+- `ask` goes through `agent.py` modes (`plain` / `rag` / `both`) and keeps Day 22 defaults.
+- RAG output prints diagnostics:
+  - `before`
+  - `after_threshold`
+  - `final`
+  - `avg_score`
+  - `rewritten_query` (when rewrite enabled)
+- `eval --compare` prints profile summary for `baseline` and `improved`.
+- Default behavior with no new flags remains Day 22-compatible.
+
+### Troubleshooting
+
+- Rewrite enabled but no `rewritten_query` shown -> check `--rewrite-query` flag and provider key.
+- `improved` profile not better than `baseline` -> tune `--min-similarity` (start at `0.30-0.40`)
+  and/or reduce `--top-k`.
+- Too few final chunks -> lower threshold or disable MMR for the run.
+
+### Demo flow (short)
+
+1. Run baseline `ask --mode rag` and show retrieval counts/sources.
+2. Run improved `ask --mode rag` with Day 23 flags and show count reduction + rewritten query.
+3. Run `eval --compare` and show profile-level quality numbers.
+
+---
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
 |-----|------|----------|------|--------|-------|
 | 21 | Local document indexing pipeline: ingestion (`md/txt/py/pdf`), fixed + structure chunking, embeddings, SQLite index, metadata, strategy comparison | `-m week_05.main compare --source "week_05/corpus"`, `-m week_05.main --db "data/week_05/rag_index.sqlite" stats` | `documents.py`, `chunking.py`, `embeddings.py`, `index_store.py`, `indexer.py`, `cli.py`, `main.py` | done | _link_ |
 | 22 | First RAG query: plain vs rag, SQLite retrieval, citations, 10-question control eval | `-m week_05.main ask --mode both --source "week_05/corpus" --question "..."`, `-m week_05.main eval --source "week_05/corpus"` | `retrieval.py`, `rag_qa.py`, `eval.py`, `eval/questions.json`, `cli.py`, `tests/test_retrieval.py`, `tests/test_rag_qa_eval.py` | done | _link_ |
+| 23 | Reranking/filtering + query rewrite + baseline vs improved comparison | `-m week_05.main ask --mode rag --top-k-before 20 --min-similarity 0.35 --use-mmr --rewrite-query --question "..."`, `-m week_05.main eval --compare` | `agent.py`, `retrieval.py`, `rag_qa.py`, `eval.py`, `cli.py`, `tests/test_retrieval.py`, `tests/test_rag_qa_eval.py` | done | _link_ |

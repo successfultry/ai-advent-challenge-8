@@ -44,12 +44,41 @@ class EvalSummary:
 
 @dataclass(frozen=True)
 class EvalReport:
+    profile: str
     provider: str
     strategy: str
     source_root: str
     db_path: str
     summary: EvalSummary
     results: list[EvalQuestionResult]
+
+
+@dataclass(frozen=True)
+class EvalProfileConfig:
+    name: str
+    top_k: int
+    top_k_before: int | None = None
+    min_similarity: float = -1.0
+    use_mmr: bool = False
+    rewrite_query: bool = False
+
+
+@dataclass(frozen=True)
+class EvalProfileSummary:
+    profile: str
+    avg_keyword_recall_plain: float
+    avg_keyword_recall_rag: float
+    source_hit_rate: float
+    avg_retrieved_final: float
+
+
+@dataclass(frozen=True)
+class EvalComparisonReport:
+    provider: str
+    strategy: str
+    source_root: str
+    db_path: str
+    profiles: list[EvalProfileSummary]
 
 
 def _normalize_text(text: str) -> str:
@@ -118,6 +147,11 @@ def run_eval(
     source_root: Path,
     strategy: str = "structure",
     top_k: int = 5,
+    profile_name: str = "default",
+    top_k_before: int | None = None,
+    min_similarity: float = -1.0,
+    use_mmr: bool = False,
+    rewrite_query: bool = False,
     limit: int | None = None,
     temperature: float = 0.2,
     max_tokens: int | None = 500,
@@ -132,32 +166,35 @@ def run_eval(
     call_plain = plain_fn or (
         lambda q, p, t, m: answer_plain(q, p, temperature=t, max_tokens=m)
     )
-    call_rag = rag_fn or (
-        lambda q, p, db, src, strat, k, t, m: answer_rag(
-            q,
-            p,
-            db,
-            src,
-            strategy=strat,
-            top_k=k,
-            temperature=t,
-            max_tokens=m,
-        )
-    )
-
     results: list[EvalQuestionResult] = []
     for question in questions:
         plain = call_plain(question.question, provider_name, temperature, max_tokens)
-        rag = call_rag(
-            question.question,
-            provider_name,
-            db_path,
-            source_root,
-            strategy,
-            top_k,
-            temperature,
-            max_tokens,
-        )
+        if rag_fn is None:
+            rag = answer_rag(
+                question.question,
+                provider_name,
+                db_path,
+                source_root,
+                strategy=strategy,
+                top_k=top_k,
+                top_k_before=top_k_before,
+                min_similarity=min_similarity,
+                use_mmr=use_mmr,
+                rewrite_query=rewrite_query,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        else:
+            rag = rag_fn(
+                question.question,
+                provider_name,
+                db_path,
+                source_root,
+                strategy,
+                top_k,
+                temperature,
+                max_tokens,
+            )
         results.append(
             EvalQuestionResult(
                 id=question.id,
@@ -182,6 +219,7 @@ def run_eval(
     )
 
     report = EvalReport(
+        profile=profile_name,
         provider=provider_name,
         strategy=strategy,
         source_root=_display_path(source_root),
@@ -201,3 +239,107 @@ def run_eval(
         encoding="utf-8",
     )
     return report
+
+
+def _profile_summary(report: EvalReport) -> EvalProfileSummary:
+    run_count = len(report.results)
+    avg_retrieved = (
+        sum(item.retrieved_count for item in report.results) / run_count if run_count else 0.0
+    )
+    return EvalProfileSummary(
+        profile=report.profile,
+        avg_keyword_recall_plain=report.summary.avg_keyword_recall_plain,
+        avg_keyword_recall_rag=report.summary.avg_keyword_recall_rag,
+        source_hit_rate=report.summary.rag_source_hit_rate,
+        avg_retrieved_final=avg_retrieved,
+    )
+
+
+def run_eval_comparison(
+    *,
+    dataset_path: Path,
+    output_path: Path,
+    provider_name: str,
+    db_path: Path,
+    source_root: Path,
+    strategy: str,
+    profiles: list[EvalProfileConfig],
+    limit: int | None = None,
+    temperature: float = 0.2,
+    max_tokens: int | None = 500,
+) -> EvalComparisonReport:
+    summaries: list[EvalProfileSummary] = []
+    plain_cache: dict[str, QaAnswer] | None = None
+    for profile in profiles:
+        profile_plain_fn: PlainAnswerFn | None = None
+        if plain_cache is not None:
+            cache_ref = plain_cache
+
+            def _cached_plain(
+                question: str,
+                provider_name_arg: str,
+                _temperature: float,
+                _max_tokens: int | None,
+                _cache_ref: dict[str, QaAnswer] = cache_ref,
+            ) -> QaAnswer:
+                cached = _cache_ref.get(question)
+                if cached is not None:
+                    return cached
+                return answer_plain(question, provider_name_arg, temperature=0.2, max_tokens=500)
+
+            profile_plain_fn = _cached_plain
+
+        profile_output = output_path.with_name(
+            f"{output_path.stem}_{profile.name}{output_path.suffix}"
+        )
+        report = run_eval(
+            dataset_path=dataset_path,
+            output_path=profile_output,
+            provider_name=provider_name,
+            db_path=db_path,
+            source_root=source_root,
+            strategy=strategy,
+            top_k=profile.top_k,
+            profile_name=profile.name,
+            top_k_before=profile.top_k_before,
+            min_similarity=profile.min_similarity,
+            use_mmr=profile.use_mmr,
+            rewrite_query=profile.rewrite_query,
+            limit=limit,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            plain_fn=profile_plain_fn,
+        )
+        summaries.append(_profile_summary(report))
+        if plain_cache is None:
+            plain_cache = {
+                item.question: QaAnswer(
+                    mode="plain",
+                    question=item.question,
+                    answer=item.plain_answer,
+                    provider=provider_name,
+                    model="cached",
+                    latency_s=0.0,
+                    usage=None,
+                    citations=[],
+                    retrieval_run_id=None,
+                    retrieval_embedding_model=None,
+                    retrieved_count=0,
+                    avg_retrieval_score=0.0,
+                )
+                for item in report.results
+            }
+
+    comparison = EvalComparisonReport(
+        provider=provider_name,
+        strategy=strategy,
+        source_root=_display_path(source_root),
+        db_path=_display_path(db_path),
+        profiles=summaries,
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(asdict(comparison), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return comparison

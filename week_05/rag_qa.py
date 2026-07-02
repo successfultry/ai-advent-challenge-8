@@ -38,6 +38,10 @@ class QaAnswer:
     retrieval_embedding_model: str | None
     retrieved_count: int
     avg_retrieval_score: float
+    retrieved_before: int = 0
+    retrieved_after_threshold: int = 0
+    rewritten_query: str | None = None
+    query_used: str | None = None
 
 
 def _default_generate(
@@ -63,6 +67,10 @@ def _default_retrieve(
     question: str,
     strategy: str,
     top_k: int,
+    top_k_before: int | None = None,
+    min_similarity: float = -1.0,
+    use_mmr: bool = False,
+    rewritten_query: str | None = None,
 ) -> RetrievalResult:
     return retrieve_chunks(
         db_path=db_path,
@@ -70,7 +78,33 @@ def _default_retrieve(
         question=question,
         strategy=strategy,
         top_k=top_k,
+        top_k_before=top_k_before,
+        min_similarity=min_similarity,
+        use_mmr=use_mmr,
+        rewritten_query=rewritten_query,
     )
+
+
+def _rewrite_query(
+    question: str,
+    provider_name: str,
+    *,
+    generator: GenerateFn,
+) -> str:
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Rewrite the user question for semantic search over Russian lecture notes "
+                "about LLMs, RAG, MCP, embeddings, chunking, and retrieval. "
+                "Add 3-5 relevant domain terms. Return ONLY the rewritten query."
+            ),
+        },
+        {"role": "user", "content": f"Question: {question}"},
+    ]
+    content, _usage, _elapsed, _model = generator(provider_name, messages, 0.0, 120)
+    rewritten = content.strip()
+    return rewritten if rewritten else question
 
 
 def answer_plain(
@@ -119,6 +153,10 @@ def answer_rag(
     *,
     strategy: str = "structure",
     top_k: int = 5,
+    top_k_before: int | None = None,
+    min_similarity: float = -1.0,
+    use_mmr: bool = False,
+    rewrite_query: bool = False,
     temperature: float = 0.2,
     max_tokens: int | None = 500,
     max_chars_per_chunk: int = 1000,
@@ -130,9 +168,31 @@ def answer_rag(
     if not normalized_question:
         raise ValueError("Question must not be empty.")
 
-    call_retrieve = retriever or _default_retrieve
     call_model = generator or _default_generate
-    retrieval = call_retrieve(db_path, source_root, normalized_question, strategy, top_k)
+    query_used = normalized_question
+    rewritten_query: str | None = None
+    if rewrite_query:
+        rewritten_query = _rewrite_query(
+            normalized_question,
+            provider_name,
+            generator=call_model,
+        )
+        query_used = rewritten_query
+
+    if retriever is None:
+        retrieval = _default_retrieve(
+            db_path,
+            source_root,
+            query_used,
+            strategy,
+            top_k,
+            top_k_before=top_k_before,
+            min_similarity=min_similarity,
+            use_mmr=use_mmr,
+            rewritten_query=rewritten_query,
+        )
+    else:
+        retrieval = retriever(db_path, source_root, query_used, strategy, top_k)
 
     citations = [
         Citation(
@@ -158,6 +218,10 @@ def answer_rag(
             retrieval_embedding_model=retrieval.embedding_model_used,
             retrieved_count=0,
             avg_retrieval_score=0.0,
+            retrieved_before=retrieval.retrieved_before,
+            retrieved_after_threshold=retrieval.retrieved_after_threshold,
+            rewritten_query=rewritten_query or retrieval.rewritten_query,
+            query_used=query_used,
         )
 
     context_parts: list[str] = []
@@ -170,10 +234,8 @@ def answer_rag(
             break
         used_chars += len(text)
         context_parts.append(
-            
-                f"[C{idx}] source={chunk.source} title={chunk.title} section={chunk.section} "
-                f"chunk_id={chunk.chunk_id} score={chunk.score:.4f}\n{text}"
-            
+            f"[C{idx}] source={chunk.source} title={chunk.title} section={chunk.section} "
+            f"chunk_id={chunk.chunk_id} score={chunk.score:.4f}\n{text}"
         )
     context_block = "\n\n".join(context_parts)
 
@@ -209,4 +271,8 @@ def answer_rag(
         retrieval_embedding_model=retrieval.embedding_model_used,
         retrieved_count=retrieval.retrieved_count,
         avg_retrieval_score=retrieval.avg_score,
+        retrieved_before=retrieval.retrieved_before,
+        retrieved_after_threshold=retrieval.retrieved_after_threshold,
+        rewritten_query=rewritten_query or retrieval.rewritten_query,
+        query_used=query_used,
     )

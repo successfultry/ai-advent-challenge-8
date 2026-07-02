@@ -29,6 +29,9 @@ class RetrievalResult:
     embedding_model_used: str
     retrieved_count: int
     avg_score: float
+    retrieved_before: int = 0
+    retrieved_after_threshold: int = 0
+    rewritten_query: str | None = None
 
 
 def _l2_norm(vector: list[float]) -> float:
@@ -44,6 +47,42 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b, strict=False)) / denom
 
 
+@dataclass(frozen=True)
+class _ScoredChunk:
+    chunk: RetrievedChunk
+    embedding: list[float]
+
+
+def _mmr_select(
+    candidates: list[_ScoredChunk],
+    *,
+    top_k: int,
+    lambda_relevance: float = 0.7,
+) -> list[_ScoredChunk]:
+    if top_k <= 0 or not candidates:
+        return []
+
+    selected: list[_ScoredChunk] = []
+    remaining = list(candidates)
+    while remaining and len(selected) < top_k:
+        best_idx = -1
+        best_score = float("-inf")
+        for idx, candidate in enumerate(remaining):
+            relevance = candidate.chunk.score
+            if not selected:
+                mmr_score = relevance
+            else:
+                max_sim = max(
+                    _cosine_similarity(candidate.embedding, item.embedding) for item in selected
+                )
+                mmr_score = lambda_relevance * relevance - (1.0 - lambda_relevance) * max_sim
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_idx = idx
+        selected.append(remaining.pop(best_idx))
+    return selected
+
+
 def retrieve_chunks(
     db_path: Path,
     source_root: Path,
@@ -51,6 +90,10 @@ def retrieve_chunks(
     *,
     strategy: str = "structure",
     top_k: int = 5,
+    top_k_before: int | None = None,
+    min_similarity: float = -1.0,
+    use_mmr: bool = False,
+    rewritten_query: str | None = None,
     provider: EmbeddingProvider | None = None,
 ) -> RetrievalResult:
     normalized_question = question.strip()
@@ -73,8 +116,24 @@ def retrieve_chunks(
             chunks=[],
             run_id=latest.id,
             embedding_model_used=latest.embedding_model,
+            retrieved_before=0,
+            retrieved_after_threshold=0,
             retrieved_count=0,
             avg_score=0.0,
+            rewritten_query=rewritten_query,
+        )
+
+    stage_top_k = top_k if top_k_before is None else max(0, top_k_before)
+    if stage_top_k <= 0:
+        return RetrievalResult(
+            chunks=[],
+            run_id=latest.id,
+            embedding_model_used=latest.embedding_model,
+            retrieved_before=0,
+            retrieved_after_threshold=0,
+            retrieved_count=0,
+            avg_score=0.0,
+            rewritten_query=rewritten_query,
         )
 
     emb_provider = provider or OpenAIEmbeddingProvider(model=latest.embedding_model)
@@ -88,7 +147,7 @@ def retrieve_chunks(
     query_dim = len(query_vector)
 
     rows = store.run_chunks(latest.id)
-    scored: list[RetrievedChunk] = []
+    scored: list[_ScoredChunk] = []
     for row in rows:
         embedding_raw = row["embedding_json"]
         if embedding_raw is None:
@@ -107,26 +166,39 @@ def retrieve_chunks(
             )
         score = _cosine_similarity(query_vector, chunk_embedding)
         scored.append(
-            RetrievedChunk(
-                chunk_id=str(row["chunk_id"]),
-                source=str(row["source"]),
-                title=str(row["title"]),
-                section=str(row["section"]),
-                strategy=str(row["strategy"]),
-                score=score,
-                text=str(row["text"]),
-                start_char=int(row["start_char"]),
-                end_char=int(row["end_char"]),
+            _ScoredChunk(
+                chunk=RetrievedChunk(
+                    chunk_id=str(row["chunk_id"]),
+                    source=str(row["source"]),
+                    title=str(row["title"]),
+                    section=str(row["section"]),
+                    strategy=str(row["strategy"]),
+                    score=score,
+                    text=str(row["text"]),
+                    start_char=int(row["start_char"]),
+                    end_char=int(row["end_char"]),
+                ),
+                embedding=chunk_embedding,
             )
         )
 
-    scored.sort(key=lambda item: item.score, reverse=True)
-    selected = scored[:top_k]
+    scored.sort(key=lambda item: item.chunk.score, reverse=True)
+    before = scored[:stage_top_k]
+    filtered = [item for item in before if item.chunk.score >= min_similarity]
+    if use_mmr:
+        final_items = _mmr_select(filtered, top_k=top_k)
+    else:
+        final_items = filtered[:top_k]
+
+    selected = [item.chunk for item in final_items]
     avg_score = sum(item.score for item in selected) / len(selected) if selected else 0.0
     return RetrievalResult(
         chunks=selected,
         run_id=latest.id,
         embedding_model_used=latest.embedding_model,
+        retrieved_before=len(before),
+        retrieved_after_threshold=len(filtered),
         retrieved_count=len(selected),
         avg_score=avg_score,
+        rewritten_query=rewritten_query,
     )

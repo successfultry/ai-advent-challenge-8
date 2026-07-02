@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from week_05.eval import run_eval
+import pytest
+
+import week_05.eval as eval_module
+from week_05.eval import EvalProfileConfig, run_eval, run_eval_comparison
 from week_05.rag_qa import QaAnswer, answer_plain, answer_rag
 from week_05.retrieval import RetrievalResult, RetrievedChunk
 
@@ -213,4 +216,104 @@ def test_eval_scoring_is_deterministic(tmp_path: Path) -> None:
     assert report.summary.avg_keyword_recall_plain == 0.25
     assert report.summary.avg_keyword_recall_rag == 1.0
     assert report.summary.rag_source_hit_rate == 0.5
+    assert output.exists()
+
+
+def test_rag_rewrite_passes_rewritten_question_to_retriever() -> None:
+    captured: dict[str, object] = {}
+
+    def fake_retriever(
+        _db: Path,
+        _src: Path,
+        question: str,
+        _strategy: str,
+        _top_k: int,
+    ) -> RetrievalResult:
+        captured["retriever_question"] = question
+        return RetrievalResult(
+            chunks=[],
+            run_id="run-empty",
+            embedding_model_used="text-embedding-3-small",
+            retrieved_count=0,
+            avg_score=0.0,
+        )
+
+    def fake_generator(
+        _provider: str,
+        messages: list[dict[str, str]],
+        _temperature: float,
+        _max_tokens: int | None,
+    ) -> tuple[str, object | None, float, str]:
+        if "Rewrite the user question" in messages[0]["content"]:
+            return "rewritten terms query", None, 0.01, "fake-model"
+        return "answer", None, 0.01, "fake-model"
+
+    out = answer_rag(
+        "что такое rag",
+        "GPT-4o mini",
+        Path("db.sqlite"),
+        Path("week_05/corpus"),
+        rewrite_query=True,
+        generator=fake_generator,
+        retriever=fake_retriever,
+    )
+    assert captured["retriever_question"] == "rewritten terms query"
+    assert out.rewritten_query == "rewritten terms query"
+    assert out.query_used == "rewritten terms query"
+
+
+def test_eval_comparison_outputs_profile_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = tmp_path / "questions.json"
+    dataset.write_text("[]", encoding="utf-8")
+    output = tmp_path / "compare.json"
+
+    def fake_run_eval(**kwargs: object) -> eval_module.EvalReport:
+        profile = str(kwargs["profile_name"])
+        summary = eval_module.EvalSummary(
+            questions_total=10,
+            questions_run=10,
+            avg_keyword_recall_plain=0.4,
+            avg_keyword_recall_rag=0.8 if profile == "improved" else 0.6,
+            rag_source_hit_rate=0.9 if profile == "improved" else 0.7,
+        )
+        result = eval_module.EvalQuestionResult(
+            id="q1",
+            question="q1",
+            keyword_recall_plain=0.0,
+            keyword_recall_rag=1.0,
+            source_hit=True,
+            retrieved_count=4 if profile == "improved" else 5,
+            avg_retrieval_score=0.5,
+            plain_answer="a",
+            rag_answer="b",
+        )
+        return eval_module.EvalReport(
+            profile=profile,
+            provider="GPT-4o mini",
+            strategy="structure",
+            source_root="week_05/corpus",
+            db_path="data/week_05/rag_index.sqlite",
+            summary=summary,
+            results=[result],
+        )
+
+    monkeypatch.setattr(eval_module, "run_eval", fake_run_eval)
+    comparison = run_eval_comparison(
+        dataset_path=dataset,
+        output_path=output,
+        provider_name="GPT-4o mini",
+        db_path=tmp_path / "db.sqlite",
+        source_root=tmp_path / "corpus",
+        strategy="structure",
+        profiles=[
+            EvalProfileConfig(name="baseline", top_k=5),
+            EvalProfileConfig(name="improved", top_k=5, rewrite_query=True),
+        ],
+    )
+    assert len(comparison.profiles) == 2
+    assert comparison.profiles[0].profile == "baseline"
+    assert comparison.profiles[1].profile == "improved"
     assert output.exists()

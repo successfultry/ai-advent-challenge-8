@@ -185,3 +185,64 @@ def test_retrieval_top_k_zero_returns_empty(tmp_path: Path) -> None:
     )
     assert out.run_id == "run-z"
     assert out.chunks == []
+
+
+def test_retrieval_threshold_and_two_stage_counts(tmp_path: Path) -> None:
+    db = tmp_path / "idx.sqlite"
+    source_root = tmp_path.resolve()
+    store = IndexStore(db)
+    store.init()
+    store.upsert_run(
+        IndexRun(
+            id="run-two-stage",
+            strategy="structure",
+            embedding_model="embed-model-a",
+            created_at=datetime.now(tz=UTC).isoformat(),
+            source_root=str(source_root),
+            document_count=1,
+            chunk_count=3,
+            missing_embedding_count=0,
+            metadata={},
+        )
+    )
+    store.save_chunks(
+        "run-two-stage",
+        [
+            EmbeddedChunk(
+                chunk=_chunk("c1", "one"),
+                embedding=[1.0, 0.0],
+                embedding_dim=2,
+                embedding_norm=1.0,
+                from_cache=False,
+            ),
+            EmbeddedChunk(
+                chunk=_chunk("c2", "two"),
+                embedding=[0.8, 0.2],
+                embedding_dim=2,
+                embedding_norm=0.8246,
+                from_cache=False,
+            ),
+            EmbeddedChunk(
+                chunk=_chunk("c3", "three"),
+                embedding=[0.1, 0.9],
+                embedding_dim=2,
+                embedding_norm=0.9055,
+                from_cache=False,
+            ),
+        ],
+    )
+
+    out = retrieve_chunks(
+        db_path=db,
+        source_root=source_root,
+        question="demo",
+        strategy="structure",
+        top_k=1,
+        top_k_before=3,
+        min_similarity=0.7,
+        provider=FakeEmbeddingProvider("embed-model-a", [1.0, 0.0]),
+    )
+    assert out.retrieved_before == 3
+    assert out.retrieved_after_threshold == 2
+    assert out.retrieved_count == 1
+    assert out.chunks[0].chunk_id == "c1"

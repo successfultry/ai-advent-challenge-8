@@ -4,11 +4,11 @@ import argparse
 import json
 from pathlib import Path
 
+from week_05.agent import run_agent
 from week_05.embeddings import DEFAULT_EMBEDDING_MODEL
-from week_05.eval import run_eval
+from week_05.eval import EvalProfileConfig, run_eval, run_eval_comparison
 from week_05.index_store import IndexStore
 from week_05.indexer import PipelineOutput, index_documents
-from week_05.rag_qa import answer_plain, answer_rag
 
 DEFAULT_DB_PATH = Path("data/week_05/rag_index.sqlite")
 
@@ -52,6 +52,10 @@ def _parse_args() -> argparse.Namespace:
     p_ask.add_argument("--source", default="week_05/corpus")
     p_ask.add_argument("--strategy", choices=["fixed", "structure"], default="structure")
     p_ask.add_argument("--top-k", type=int, default=5)
+    p_ask.add_argument("--top-k-before", type=int, default=None)
+    p_ask.add_argument("--min-similarity", type=float, default=-1.0)
+    p_ask.add_argument("--use-mmr", action="store_true", default=False)
+    p_ask.add_argument("--rewrite-query", action="store_true", default=False)
     p_ask.add_argument("--temperature", type=float, default=0.2)
     p_ask.add_argument("--max-tokens", type=int, default=500)
 
@@ -62,6 +66,11 @@ def _parse_args() -> argparse.Namespace:
     p_eval.add_argument("--source", default="week_05/corpus")
     p_eval.add_argument("--strategy", choices=["fixed", "structure"], default="structure")
     p_eval.add_argument("--top-k", type=int, default=5)
+    p_eval.add_argument("--top-k-before", type=int, default=None)
+    p_eval.add_argument("--min-similarity", type=float, default=-1.0)
+    p_eval.add_argument("--use-mmr", action="store_true", default=False)
+    p_eval.add_argument("--rewrite-query", action="store_true", default=False)
+    p_eval.add_argument("--compare", action="store_true", default=False)
     p_eval.add_argument("--limit", type=int, default=None)
     p_eval.add_argument("--temperature", type=float, default=0.2)
     p_eval.add_argument("--max-tokens", type=int, default=500)
@@ -233,33 +242,37 @@ def _print_answer_block(
 def _answer_once(args: argparse.Namespace, question: str) -> None:
     source = Path(args.source)
     db = Path(args.db)
-    mode = args.mode
-    if mode in {"plain", "both"}:
-        plain = answer_plain(
-            question,
-            args.provider,
-            temperature=args.temperature,
-            max_tokens=args.max_tokens,
-        )
+    result = run_agent(
+        question,
+        mode=args.mode,
+        provider_name=args.provider,
+        db_path=db,
+        source_root=source,
+        strategy=args.strategy,
+        top_k=args.top_k,
+        top_k_before=args.top_k_before,
+        min_similarity=args.min_similarity,
+        use_mmr=args.use_mmr,
+        rewrite_query=args.rewrite_query,
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+    )
+
+    if result.plain is not None:
+        plain = result.plain
         _print_answer_block("plain", plain.answer, plain.usage, plain.latency_s, plain.model)
 
-    if mode in {"rag", "both"}:
-        rag = answer_rag(
-            question,
-            args.provider,
-            db,
-            source,
-            strategy=args.strategy,
-            top_k=args.top_k,
-            temperature=args.temperature,
-            max_tokens=args.max_tokens,
-        )
+    if result.rag is not None:
+        rag = result.rag
         _print_answer_block("rag", rag.answer, rag.usage, rag.latency_s, rag.model)
         print(
             "retrieval: "
             f"run_id={rag.retrieval_run_id} model={rag.retrieval_embedding_model} "
-            f"retrieved={rag.retrieved_count} avg_score={rag.avg_retrieval_score:.4f}"
+            f"before={rag.retrieved_before} after_threshold={rag.retrieved_after_threshold} "
+            f"final={rag.retrieved_count} avg_score={rag.avg_retrieval_score:.4f}"
         )
+        if rag.rewritten_query is not None:
+            print(f"rewritten_query: {rag.rewritten_query}")
         if rag.citations:
             print("citations:")
             for citation in rag.citations:
@@ -276,7 +289,9 @@ def _command_ask(args: argparse.Namespace) -> None:
     source = Path(args.source)
     print(
         f"Ask mode={args.mode} provider={args.provider} strategy={args.strategy} "
-        f"top_k={args.top_k} source={_display_path(source)}"
+        f"top_k={args.top_k} top_k_before={args.top_k_before} "
+        f"min_similarity={args.min_similarity} mmr={args.use_mmr} "
+        f"rewrite={args.rewrite_query} source={_display_path(source)}"
     )
 
     if args.question is not None and str(args.question).strip():
@@ -300,6 +315,46 @@ def _command_eval(args: argparse.Namespace) -> None:
     source = Path(args.source)
     dataset = Path(args.dataset)
     output = Path(args.output)
+    if args.compare:
+        profiles = [
+            EvalProfileConfig(name="baseline", top_k=args.top_k),
+            EvalProfileConfig(
+                name="improved",
+                top_k=args.top_k,
+                top_k_before=args.top_k_before if args.top_k_before is not None else 20,
+                min_similarity=args.min_similarity if args.min_similarity > -1.0 else 0.35,
+                use_mmr=args.use_mmr,
+                rewrite_query=True,
+            ),
+        ]
+        comparison = run_eval_comparison(
+            dataset_path=dataset,
+            output_path=output,
+            provider_name=args.provider,
+            db_path=db,
+            source_root=source,
+            strategy=args.strategy,
+            profiles=profiles,
+            limit=args.limit,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+        )
+        print(
+            f"Eval compare provider={comparison.provider} strategy={comparison.strategy} "
+            f"profiles={len(comparison.profiles)}"
+        )
+        print("profile summary:")
+        for profile in comparison.profiles:
+            print(
+                "  - "
+                f"{profile.profile}: plain_kw={profile.avg_keyword_recall_plain:.3f} "
+                f"rag_kw={profile.avg_keyword_recall_rag:.3f} "
+                f"source_hit={profile.source_hit_rate:.3f} "
+                f"avg_retrieved_final={profile.avg_retrieved_final:.2f}"
+            )
+        print(f"report: {_display_path(output)}")
+        return
+
     report = run_eval(
         dataset_path=dataset,
         output_path=output,
@@ -308,12 +363,18 @@ def _command_eval(args: argparse.Namespace) -> None:
         source_root=source,
         strategy=args.strategy,
         top_k=args.top_k,
+        top_k_before=args.top_k_before,
+        min_similarity=args.min_similarity,
+        use_mmr=args.use_mmr,
+        rewrite_query=args.rewrite_query,
         limit=args.limit,
         temperature=args.temperature,
         max_tokens=args.max_tokens,
     )
     print(
         f"Eval provider={report.provider} strategy={report.strategy} "
+        "profile="
+        f"{report.profile} "
         f"questions={report.summary.questions_run}/{report.summary.questions_total}"
     )
     print(
