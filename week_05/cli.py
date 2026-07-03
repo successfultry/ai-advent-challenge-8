@@ -257,23 +257,31 @@ def _print_rag_block(args: argparse.Namespace, rag: object) -> None:
     print("\nAnswer:")
     print(rag.answer)
 
-    print("\nSources:")
+    used_labels = getattr(rag, "used_labels", []) or []
+    print("\nUsed by answer:")
+    print(f"  {', '.join(used_labels) if used_labels else 'none cited by model'}")
+
+    print("\nRetrieved context:")
     if rag.citations:
         for idx, citation in enumerate(rag.citations, start=1):
+            label = getattr(citation, "label", f"C{idx}") or f"C{idx}"
+            used_mark = " *used" if getattr(citation, "used", False) else ""
             print(
                 "  - "
-                f"[C{idx}] source={_display_path(citation.source)} section={citation.section} "
+                f"[{label}]{used_mark} path={_display_path(citation.source)} "
+                f"section={citation.section} "
                 f"chunk_id={citation.chunk_id} score={citation.score:.4f}"
             )
     else:
         print("  - none")
 
     if not args.compact:
-        print("\nQuotes:")
+        print("\nEvidence (used by answer):")
         if rag.quotes:
             for idx, quote in enumerate(rag.quotes, start=1):
+                label = getattr(quote, "label", f"C{idx}") or f"C{idx}"
                 display_text = " ".join(quote.text.split())
-                print(f'  - [C{idx}] "{display_text}"')
+                print(f'  - [{label}] "{display_text}"')
         else:
             print("  - none")
 

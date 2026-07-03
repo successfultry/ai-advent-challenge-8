@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +23,8 @@ class Citation:
     title: str
     section: str
     score: float
+    label: str = ""
+    used: bool = False
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,7 @@ class Quote:
     section: str
     score: float
     text: str
+    label: str = ""
 
 
 @dataclass(frozen=True)
@@ -55,6 +59,7 @@ class QaAnswer:
     retrieved_after_threshold: int = 0
     rewritten_query: str | None = None
     query_used: str | None = None
+    used_labels: list[str] = field(default_factory=list)
 
 
 def _default_generate(
@@ -121,8 +126,46 @@ def _rewrite_query(
     return rewritten if rewritten else question
 
 
+def _parse_used_indices(content: str, chunk_count: int) -> list[int]:
+    # Model is instructed to end with `Sources: [C1], [C3]`. Parse from the last
+    # "Sources"/"Источник" marker so a mention of [C2] inside the prose doesn't count.
+    marker = max(content.lower().rfind("sources"), content.lower().rfind("источник"))
+    tail = content[marker:] if marker != -1 else content
+    seen: list[int] = []
+    for match in re.finditer(r"C(\d+)", tail):
+        idx = int(match.group(1))
+        if 1 <= idx <= chunk_count and idx not in seen:
+            seen.append(idx)
+    return seen
+
+
+def _quote_from_chunk(
+    chunk: RetrievedChunk,
+    label: str,
+    quote_max_chars: int,
+) -> Quote | None:
+    # Quote text is an exact contiguous substring of chunk.text (strip only trims
+    # edges, truncation keeps a prefix), so quotes stay verifiable against the source.
+    snippet = chunk.text.strip()
+    if not snippet:
+        return None
+    quote_text = snippet[:quote_max_chars]
+    if len(snippet) > quote_max_chars:
+        quote_text = quote_text + "..."
+    return Quote(
+        chunk_id=chunk.chunk_id,
+        source=chunk.source,
+        title=chunk.title,
+        section=chunk.section,
+        score=chunk.score,
+        text=quote_text,
+        label=label,
+    )
+
+
 def _select_quotes(
     chunks: list[RetrievedChunk],
+    used_indices: list[int],
     *,
     max_quotes: int,
     quote_max_chars: int,
@@ -130,26 +173,16 @@ def _select_quotes(
     if max_quotes <= 0 or quote_max_chars <= 0:
         return []
 
+    # Prefer chunks the model actually cited; fall back to top-N when it named none.
+    order = used_indices or list(range(1, len(chunks) + 1))
     selected: list[Quote] = []
-    for chunk in chunks[:max_quotes]:
-        # Quote text is an exact contiguous substring of chunk.text (strip only trims
-        # edges, truncation keeps a prefix), so quotes stay verifiable against the source.
-        snippet = chunk.text.strip()
-        if not snippet:
-            continue
-        quote_text = snippet[:quote_max_chars]
-        if len(snippet) > quote_max_chars:
-            quote_text = quote_text + "..."
-        selected.append(
-            Quote(
-                chunk_id=chunk.chunk_id,
-                source=chunk.source,
-                title=chunk.title,
-                section=chunk.section,
-                score=chunk.score,
-                text=quote_text,
-            )
-        )
+    for one_based in order:
+        if len(selected) >= max_quotes:
+            break
+        chunk = chunks[one_based - 1]
+        quote = _quote_from_chunk(chunk, f"C{one_based}", quote_max_chars)
+        if quote is not None:
+            selected.append(quote)
     return selected
 
 
@@ -276,14 +309,10 @@ def answer_rag(
             title=chunk.title,
             section=chunk.section,
             score=chunk.score,
+            label=f"C{idx}",
         )
-        for chunk in retrieval.chunks
+        for idx, chunk in enumerate(retrieval.chunks, start=1)
     ]
-    quotes = _select_quotes(
-        retrieval.chunks,
-        max_quotes=max_quotes,
-        quote_max_chars=quote_max_chars,
-    )
     reason = _fallback_reason(
         retrieval,
         hallucination_threshold=hallucination_threshold,
@@ -299,7 +328,7 @@ def answer_rag(
             latency_s=0.0,
             usage=None,
             citations=citations,
-            quotes=quotes,
+            quotes=[],
             retrieval_run_id=retrieval.run_id,
             retrieval_embedding_model=retrieval.embedding_model_used,
             retrieved_count=retrieval.retrieved_count,
@@ -348,6 +377,28 @@ def answer_rag(
         temperature,
         max_tokens,
     )
+
+    used_indices = _parse_used_indices(content, len(retrieval.chunks))
+    used_set = set(used_indices)
+    citations = [
+        Citation(
+            chunk_id=citation.chunk_id,
+            source=citation.source,
+            title=citation.title,
+            section=citation.section,
+            score=citation.score,
+            label=citation.label,
+            used=(idx in used_set),
+        )
+        for idx, citation in enumerate(citations, start=1)
+    ]
+    quotes = _select_quotes(
+        retrieval.chunks,
+        used_indices,
+        max_quotes=max_quotes,
+        quote_max_chars=quote_max_chars,
+    )
+    used_labels = [f"C{idx}" for idx in used_indices]
     return QaAnswer(
         mode="rag",
         question=normalized_question,
@@ -368,4 +419,5 @@ def answer_rag(
         retrieved_after_threshold=retrieval.retrieved_after_threshold,
         rewritten_query=rewritten_query or retrieval.rewritten_query,
         query_used=query_used,
+        used_labels=used_labels,
     )
