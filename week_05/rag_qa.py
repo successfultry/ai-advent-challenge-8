@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from shared.client import get_client, timed_response
-from week_05.retrieval import RetrievalResult, retrieve_chunks
+from week_05.retrieval import RetrievalResult, RetrievedChunk, retrieve_chunks
 
 GenerateFn = Callable[
     [str, list[dict[str, str]], float, int | None], tuple[str, object | None, float, str]
@@ -25,6 +25,16 @@ class Citation:
 
 
 @dataclass(frozen=True)
+class Quote:
+    chunk_id: str
+    source: str
+    title: str
+    section: str
+    score: float
+    text: str
+
+
+@dataclass(frozen=True)
 class QaAnswer:
     mode: str
     question: str
@@ -34,10 +44,13 @@ class QaAnswer:
     latency_s: float
     usage: object | None
     citations: list[Citation]
-    retrieval_run_id: str | None
-    retrieval_embedding_model: str | None
-    retrieved_count: int
-    avg_retrieval_score: float
+    quotes: list[Quote] = field(default_factory=list)
+    retrieval_run_id: str | None = None
+    retrieval_embedding_model: str | None = None
+    retrieved_count: int = 0
+    avg_retrieval_score: float = 0.0
+    grounded: bool = False
+    fallback_reason: str | None = None
     retrieved_before: int = 0
     retrieved_after_threshold: int = 0
     rewritten_query: str | None = None
@@ -108,6 +121,60 @@ def _rewrite_query(
     return rewritten if rewritten else question
 
 
+def _select_quotes(
+    chunks: list[RetrievedChunk],
+    *,
+    max_quotes: int,
+    quote_max_chars: int,
+) -> list[Quote]:
+    if max_quotes <= 0 or quote_max_chars <= 0:
+        return []
+
+    selected: list[Quote] = []
+    for chunk in chunks[:max_quotes]:
+        # Quote text is an exact contiguous substring of chunk.text (strip only trims
+        # edges, truncation keeps a prefix), so quotes stay verifiable against the source.
+        snippet = chunk.text.strip()
+        if not snippet:
+            continue
+        quote_text = snippet[:quote_max_chars]
+        if len(snippet) > quote_max_chars:
+            quote_text = quote_text + "..."
+        selected.append(
+            Quote(
+                chunk_id=chunk.chunk_id,
+                source=chunk.source,
+                title=chunk.title,
+                section=chunk.section,
+                score=chunk.score,
+                text=quote_text,
+            )
+        )
+    return selected
+
+
+def _fallback_reason(
+    retrieval: RetrievalResult,
+    *,
+    hallucination_threshold: float,
+    min_grounded_chunks: int,
+) -> str | None:
+    if retrieval.retrieved_count == 0:
+        return "no_context"
+    if retrieval.retrieved_count < min_grounded_chunks:
+        return "too_few_chunks"
+    if retrieval.avg_score < hallucination_threshold:
+        return "low_similarity"
+    return None
+
+
+def _fallback_answer(_question: str) -> str:
+    return (
+        "Не знаю на основе текущего контекста. "
+        "Уточни вопрос: добавь тему, лекцию или термин, который нужно проверить."
+    )
+
+
 def answer_plain(
     question: str,
     provider_name: str,
@@ -139,10 +206,13 @@ def answer_plain(
         latency_s=elapsed,
         usage=usage,
         citations=[],
+        quotes=[],
         retrieval_run_id=None,
         retrieval_embedding_model=None,
         retrieved_count=0,
         avg_retrieval_score=0.0,
+        grounded=False,
+        fallback_reason=None,
     )
 
 
@@ -162,6 +232,10 @@ def answer_rag(
     max_tokens: int | None = 500,
     max_chars_per_chunk: int = 1000,
     max_total_context_chars: int = 6000,
+    hallucination_threshold: float = 0.33,
+    min_grounded_chunks: int = 1,
+    max_quotes: int = 2,
+    quote_max_chars: int = 140,
     generator: GenerateFn | None = None,
     retriever: RetrieveFn | None = None,
 ) -> QaAnswer:
@@ -205,20 +279,33 @@ def answer_rag(
         )
         for chunk in retrieval.chunks
     ]
-    if not retrieval.chunks:
+    quotes = _select_quotes(
+        retrieval.chunks,
+        max_quotes=max_quotes,
+        quote_max_chars=quote_max_chars,
+    )
+    reason = _fallback_reason(
+        retrieval,
+        hallucination_threshold=hallucination_threshold,
+        min_grounded_chunks=min_grounded_chunks,
+    )
+    if reason is not None:
         return QaAnswer(
             mode="rag",
             question=normalized_question,
-            answer=NO_CONTEXT_MESSAGE,
+            answer=_fallback_answer(normalized_question),
             provider=provider_name,
             model="n/a",
             latency_s=0.0,
             usage=None,
-            citations=[],
+            citations=citations,
+            quotes=quotes,
             retrieval_run_id=retrieval.run_id,
             retrieval_embedding_model=retrieval.embedding_model_used,
-            retrieved_count=0,
-            avg_retrieval_score=0.0,
+            retrieved_count=retrieval.retrieved_count,
+            avg_retrieval_score=retrieval.avg_score,
+            grounded=False,
+            fallback_reason=reason,
             retrieved_before=retrieval.retrieved_before,
             retrieved_after_threshold=retrieval.retrieved_after_threshold,
             rewritten_query=rewritten_query or retrieval.rewritten_query,
@@ -244,7 +331,9 @@ def answer_rag(
         {
             "role": "system",
             "content": (
-                "Answer using ONLY the provided context. If context is insufficient, say so. "
+                "Answer using ONLY the provided context. Do not use outside knowledge. "
+                "If the context does not contain enough information to answer, say "
+                "'The provided context is insufficient.' "
                 "End with 'Sources: [C1], [C3]' listing the chunk ids you used."
             ),
         },
@@ -268,10 +357,13 @@ def answer_rag(
         latency_s=elapsed,
         usage=usage,
         citations=citations,
+        quotes=quotes,
         retrieval_run_id=retrieval.run_id,
         retrieval_embedding_model=retrieval.embedding_model_used,
         retrieved_count=retrieval.retrieved_count,
         avg_retrieval_score=retrieval.avg_score,
+        grounded=True,
+        fallback_reason=None,
         retrieved_before=retrieval.retrieved_before,
         retrieved_after_threshold=retrieval.retrieved_after_threshold,
         rewritten_query=rewritten_query or retrieval.rewritten_query,

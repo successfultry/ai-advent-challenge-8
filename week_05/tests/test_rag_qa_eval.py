@@ -7,7 +7,7 @@ import pytest
 
 import week_05.eval as eval_module
 from week_05.eval import EvalProfileConfig, run_eval, run_eval_comparison
-from week_05.rag_qa import QaAnswer, answer_plain, answer_rag
+from week_05.rag_qa import QaAnswer, Quote, answer_plain, answer_rag
 from week_05.retrieval import RetrievalResult, RetrievedChunk
 
 
@@ -80,7 +80,10 @@ def test_rag_mode_returns_citations_and_truncates_context() -> None:
         max_total_context_chars=600,
     )
     assert out.citations
+    assert out.quotes
     assert out.citations[0].chunk_id == "c1"
+    assert out.quotes[0].chunk_id == "c1"
+    assert out.grounded is True
     assert out.retrieval_run_id == "run-1"
     user_prompt = captured["messages"][1]["content"]
     assert "Context:" in user_prompt
@@ -112,7 +115,10 @@ def test_rag_mode_empty_retrieval_is_graceful() -> None:
     )
     assert out.retrieved_count == 0
     assert out.citations == []
-    assert "No relevant context found" in out.answer
+    assert out.quotes == []
+    assert out.grounded is False
+    assert out.fallback_reason == "no_context"
+    assert "Не знаю на основе текущего контекста" in out.answer
 
 
 def test_eval_scoring_is_deterministic(tmp_path: Path) -> None:
@@ -175,6 +181,7 @@ def test_eval_scoring_is_deterministic(tmp_path: Path) -> None:
     ) -> QaAnswer:
         answer = "top_p and temperature" if question == "q1" else "rag"
         source = "week_05/corpus/lecture-01-notes.md" if question == "q1" else "other.md"
+        quote_text = "top_p and temperature" if question == "q1" else "rag"
         return QaAnswer(
             mode="rag",
             question=question,
@@ -196,10 +203,22 @@ def test_eval_scoring_is_deterministic(tmp_path: Path) -> None:
                     },
                 )()
             ],
+            quotes=[
+                Quote(
+                    chunk_id="c1",
+                    source=source,
+                    title="t",
+                    section="s",
+                    score=0.9,
+                    text=quote_text,
+                )
+            ],
             retrieval_run_id="run",
             retrieval_embedding_model="embed-model",
             retrieved_count=1,
             avg_retrieval_score=0.9,
+            grounded=True,
+            fallback_reason=None,
         )
 
     report = run_eval(
@@ -216,6 +235,10 @@ def test_eval_scoring_is_deterministic(tmp_path: Path) -> None:
     assert report.summary.avg_keyword_recall_plain == 0.25
     assert report.summary.avg_keyword_recall_rag == 1.0
     assert report.summary.rag_source_hit_rate == 0.5
+    assert report.summary.answers_with_sources_rate == 1.0
+    assert report.summary.answers_with_quotes_rate == 1.0
+    assert report.summary.avg_quote_keyword_overlap == 1.0
+    assert report.summary.fallback_rate == 0.0
     assert output.exists()
 
 
@@ -262,6 +285,98 @@ def test_rag_rewrite_passes_rewritten_question_to_retriever() -> None:
     assert out.query_used == "rewritten terms query"
 
 
+def test_quotes_are_substrings_of_chunk_text() -> None:
+    chunk_text = "One deterministic quote lives in this chunk text."
+
+    def fake_retriever(
+        _db: Path,
+        _src: Path,
+        _question: str,
+        _strategy: str,
+        _top_k: int,
+    ) -> RetrievalResult:
+        return RetrievalResult(
+            chunks=[
+                RetrievedChunk(
+                    chunk_id="c1",
+                    source="week_05/corpus/lecture-05-notes.md",
+                    title="lecture-05-notes",
+                    section="heading:RAG",
+                    strategy="structure",
+                    score=0.92,
+                    text=chunk_text,
+                    start_char=0,
+                    end_char=len(chunk_text),
+                )
+            ],
+            run_id="run-1",
+            embedding_model_used="text-embedding-3-small",
+            retrieved_count=1,
+            avg_score=0.92,
+        )
+
+    def fake_generator(
+        _provider: str,
+        _messages: list[dict[str, str]],
+        _temperature: float,
+        _max_tokens: int | None,
+    ) -> tuple[str, object | None, float, str]:
+        return "ok", None, 0.1, "fake-model"
+
+    out = answer_rag(
+        "Explain",
+        "GPT-4o mini",
+        Path("db.sqlite"),
+        Path("week_05/corpus"),
+        generator=fake_generator,
+        retriever=fake_retriever,
+    )
+    assert out.quotes
+    quote_text = out.quotes[0].text.replace("...", "")
+    assert quote_text in " ".join(chunk_text.split())
+
+
+def test_fallback_on_low_similarity() -> None:
+    def fake_retriever(
+        _db: Path,
+        _src: Path,
+        _question: str,
+        _strategy: str,
+        _top_k: int,
+    ) -> RetrievalResult:
+        return RetrievalResult(
+            chunks=[
+                RetrievedChunk(
+                    chunk_id="c1",
+                    source="week_05/corpus/lecture-05-notes.md",
+                    title="lecture-05-notes",
+                    section="heading:RAG",
+                    strategy="structure",
+                    score=0.20,
+                    text="weak context",
+                    start_char=0,
+                    end_char=12,
+                )
+            ],
+            run_id="run-low",
+            embedding_model_used="text-embedding-3-small",
+            retrieved_count=1,
+            avg_score=0.20,
+        )
+
+    out = answer_rag(
+        "Explain",
+        "GPT-4o mini",
+        Path("db.sqlite"),
+        Path("week_05/corpus"),
+        retriever=fake_retriever,
+        hallucination_threshold=0.33,
+    )
+    assert out.grounded is False
+    assert out.fallback_reason == "low_similarity"
+    assert out.answer.startswith("Не знаю")
+
+
 def test_eval_comparison_outputs_profile_summary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -278,6 +393,10 @@ def test_eval_comparison_outputs_profile_summary(
             avg_keyword_recall_plain=0.4,
             avg_keyword_recall_rag=0.8 if profile == "improved" else 0.6,
             rag_source_hit_rate=0.9 if profile == "improved" else 0.7,
+            answers_with_sources_rate=1.0,
+            answers_with_quotes_rate=0.9 if profile == "improved" else 0.6,
+            avg_quote_keyword_overlap=0.7 if profile == "improved" else 0.5,
+            fallback_rate=0.1 if profile == "improved" else 0.0,
         )
         result = eval_module.EvalQuestionResult(
             id="q1",
@@ -287,6 +406,11 @@ def test_eval_comparison_outputs_profile_summary(
             source_hit=True,
             retrieved_count=4 if profile == "improved" else 5,
             avg_retrieval_score=0.5,
+            has_sources=True,
+            has_quotes=True,
+            quote_keyword_overlap=1.0,
+            grounded=True,
+            fallback_reason=None,
             plain_answer="a",
             rag_answer="b",
         )

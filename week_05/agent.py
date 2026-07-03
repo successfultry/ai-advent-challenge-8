@@ -26,6 +26,10 @@ def run_agent(
     min_similarity: float = -1.0,
     use_mmr: bool = False,
     rewrite_query: bool = False,
+    hallucination_threshold: float = 0.33,
+    min_grounded_chunks: int = 1,
+    max_quotes: int = 2,
+    quote_max_chars: int = 140,
     temperature: float = 0.2,
     max_tokens: int | None = 500,
 ) -> AgentResult:
@@ -56,6 +60,10 @@ def run_agent(
             min_similarity=min_similarity,
             use_mmr=use_mmr,
             rewrite_query=rewrite_query,
+            hallucination_threshold=hallucination_threshold,
+            min_grounded_chunks=min_grounded_chunks,
+            max_quotes=max_quotes,
+            quote_max_chars=quote_max_chars,
             temperature=temperature,
             max_tokens=max_tokens,
         )

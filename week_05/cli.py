@@ -56,6 +56,11 @@ def _parse_args() -> argparse.Namespace:
     p_ask.add_argument("--min-similarity", type=float, default=-1.0)
     p_ask.add_argument("--use-mmr", action="store_true", default=False)
     p_ask.add_argument("--rewrite-query", action="store_true", default=False)
+    p_ask.add_argument("--hallucination-threshold", type=float, default=0.33)
+    p_ask.add_argument("--min-grounded-chunks", type=int, default=1)
+    p_ask.add_argument("--max-quotes", type=int, default=2)
+    p_ask.add_argument("--quote-max-chars", type=int, default=140)
+    p_ask.add_argument("--compact", action="store_true", default=False)
     p_ask.add_argument("--temperature", type=float, default=0.2)
     p_ask.add_argument("--max-tokens", type=int, default=500)
 
@@ -70,6 +75,10 @@ def _parse_args() -> argparse.Namespace:
     p_eval.add_argument("--min-similarity", type=float, default=-1.0)
     p_eval.add_argument("--use-mmr", action="store_true", default=False)
     p_eval.add_argument("--rewrite-query", action="store_true", default=False)
+    p_eval.add_argument("--hallucination-threshold", type=float, default=0.33)
+    p_eval.add_argument("--min-grounded-chunks", type=int, default=1)
+    p_eval.add_argument("--max-quotes", type=int, default=2)
+    p_eval.add_argument("--quote-max-chars", type=int, default=140)
     p_eval.add_argument("--compare", action="store_true", default=False)
     p_eval.add_argument("--limit", type=int, default=None)
     p_eval.add_argument("--temperature", type=float, default=0.2)
@@ -239,12 +248,58 @@ def _print_answer_block(
     print(answer)
 
 
+def _print_rag_block(args: argparse.Namespace, rag: object) -> None:
+    usage_payload = _usage_to_dict(rag.usage)
+    print("\n=== RAG Answer ===")
+    print(f"model={rag.model} latency_s={rag.latency_s:.2f}")
+    if usage_payload:
+        print(f"usage={json.dumps(usage_payload, ensure_ascii=False)}")
+    print("\nAnswer:")
+    print(rag.answer)
+
+    print("\nSources:")
+    if rag.citations:
+        for idx, citation in enumerate(rag.citations, start=1):
+            print(
+                "  - "
+                f"[C{idx}] source={_display_path(citation.source)} section={citation.section} "
+                f"chunk_id={citation.chunk_id} score={citation.score:.4f}"
+            )
+    else:
+        print("  - none")
+
+    if not args.compact:
+        print("\nQuotes:")
+        if rag.quotes:
+            for idx, quote in enumerate(rag.quotes, start=1):
+                display_text = " ".join(quote.text.split())
+                print(f'  - [C{idx}] "{display_text}"')
+        else:
+            print("  - none")
+
+    print("\nGrounding:")
+    print(f"  grounded={rag.grounded} fallback_reason={rag.fallback_reason}")
+
+    print("\nRetrieval:")
+    print(
+        "  "
+        f"run_id={rag.retrieval_run_id} model={rag.retrieval_embedding_model} "
+        f"before={rag.retrieved_before} after_threshold={rag.retrieved_after_threshold} "
+        f"final={rag.retrieved_count} avg_score={rag.avg_retrieval_score:.4f}"
+    )
+    if rag.rewritten_query is not None:
+        print(f"\nrewritten_query: {rag.rewritten_query}")
+
+
 def _ask_settings_line(args: argparse.Namespace, source: Path) -> str:
     return (
         f"Ask mode={args.mode} provider={args.provider} strategy={args.strategy} "
         f"top_k={args.top_k} top_k_before={args.top_k_before} "
         f"min_similarity={args.min_similarity} mmr={args.use_mmr} "
-        f"rewrite={args.rewrite_query} source={_display_path(source)}"
+        f"rewrite={args.rewrite_query} hall_threshold={args.hallucination_threshold} "
+        f"min_grounded_chunks={args.min_grounded_chunks} max_quotes={args.max_quotes} "
+        f"quote_max_chars={args.quote_max_chars} compact={args.compact} "
+        f"source={_display_path(source)}"
     )
 
 
@@ -259,6 +314,11 @@ def _print_interactive_help() -> None:
         "  :top-k <int>               set final top-k chunks\n"
         "  :top-k-before <int|none>   set recall stage size\n"
         "  :min-similarity <float>    set threshold (e.g. 0.35)\n"
+        "  :hall-threshold <float>    set anti-hallucination threshold\n"
+        "  :min-grounded-chunks <int> set min chunks before grounded answer\n"
+        "  :max-quotes <int>          set max quotes to print\n"
+        "  :quote-max-chars <int>     set quote text cap\n"
+        "  :compact on|off            hide/show quotes block\n"
         "  :mmr on|off                toggle MMR diversity\n"
         "  :rewrite on|off            toggle query rewrite\n"
         "  :reset                     reset settings to session defaults\n"
@@ -307,6 +367,11 @@ def _apply_interactive_command(
         args.min_similarity = float(original["min_similarity"])
         args.use_mmr = bool(original["use_mmr"])
         args.rewrite_query = bool(original["rewrite_query"])
+        args.hallucination_threshold = float(original["hallucination_threshold"])
+        args.min_grounded_chunks = int(original["min_grounded_chunks"])
+        args.max_quotes = int(original["max_quotes"])
+        args.quote_max_chars = int(original["quote_max_chars"])
+        args.compact = bool(original["compact"])
         print(f"Settings reset. {_ask_settings_line(args, source)}")
         return True
 
@@ -338,6 +403,25 @@ def _apply_interactive_command(
                 args.top_k_before = parsed
         elif command == "min-similarity":
             args.min_similarity = float(value)
+        elif command == "hall-threshold":
+            args.hallucination_threshold = float(value)
+        elif command == "min-grounded-chunks":
+            parsed = int(value)
+            if parsed < 1:
+                raise ValueError("min-grounded-chunks must be >= 1.")
+            args.min_grounded_chunks = parsed
+        elif command == "max-quotes":
+            parsed = int(value)
+            if parsed < 0:
+                raise ValueError("max-quotes must be >= 0.")
+            args.max_quotes = parsed
+        elif command == "quote-max-chars":
+            parsed = int(value)
+            if parsed < 1:
+                raise ValueError("quote-max-chars must be >= 1.")
+            args.quote_max_chars = parsed
+        elif command == "compact":
+            args.compact = _parse_bool_toggle(value)
         elif command == "mmr":
             args.use_mmr = _parse_bool_toggle(value)
         elif command == "rewrite":
@@ -369,6 +453,10 @@ def _answer_once(args: argparse.Namespace, question: str) -> None:
         min_similarity=args.min_similarity,
         use_mmr=args.use_mmr,
         rewrite_query=args.rewrite_query,
+        hallucination_threshold=args.hallucination_threshold,
+        min_grounded_chunks=args.min_grounded_chunks,
+        max_quotes=args.max_quotes,
+        quote_max_chars=args.quote_max_chars,
         temperature=args.temperature,
         max_tokens=args.max_tokens,
     )
@@ -379,25 +467,7 @@ def _answer_once(args: argparse.Namespace, question: str) -> None:
 
     if result.rag is not None:
         rag = result.rag
-        _print_answer_block("rag", rag.answer, rag.usage, rag.latency_s, rag.model)
-        print(
-            "retrieval: "
-            f"run_id={rag.retrieval_run_id} model={rag.retrieval_embedding_model} "
-            f"before={rag.retrieved_before} after_threshold={rag.retrieved_after_threshold} "
-            f"final={rag.retrieved_count} avg_score={rag.avg_retrieval_score:.4f}"
-        )
-        if rag.rewritten_query is not None:
-            print(f"rewritten_query: {rag.rewritten_query}")
-        if rag.citations:
-            print("citations:")
-            for citation in rag.citations:
-                print(
-                    "  - "
-                    f"{citation.chunk_id} source={_display_path(citation.source)} "
-                    f"section={citation.section} score={citation.score:.4f}"
-                )
-        else:
-            print("citations: none")
+        _print_rag_block(args, rag)
 
 
 def _command_ask(args: argparse.Namespace) -> None:
@@ -419,6 +489,11 @@ def _command_ask(args: argparse.Namespace) -> None:
         "min_similarity": args.min_similarity,
         "use_mmr": args.use_mmr,
         "rewrite_query": args.rewrite_query,
+        "hallucination_threshold": args.hallucination_threshold,
+        "min_grounded_chunks": args.min_grounded_chunks,
+        "max_quotes": args.max_quotes,
+        "quote_max_chars": args.quote_max_chars,
+        "compact": args.compact,
     }
     while True:
         try:
@@ -454,6 +529,10 @@ def _command_eval(args: argparse.Namespace) -> None:
                 min_similarity=args.min_similarity if args.min_similarity > -1.0 else 0.35,
                 use_mmr=improved_mmr,
                 rewrite_query=improved_rewrite,
+                hallucination_threshold=args.hallucination_threshold,
+                min_grounded_chunks=args.min_grounded_chunks,
+                max_quotes=args.max_quotes,
+                quote_max_chars=args.quote_max_chars,
             ),
         ]
         comparison = run_eval_comparison(
@@ -479,6 +558,10 @@ def _command_eval(args: argparse.Namespace) -> None:
                 f"{profile.profile}: plain_kw={profile.avg_keyword_recall_plain:.3f} "
                 f"rag_kw={profile.avg_keyword_recall_rag:.3f} "
                 f"source_hit={profile.source_hit_rate:.3f} "
+                f"sources={profile.answers_with_sources_rate:.3f} "
+                f"quotes={profile.answers_with_quotes_rate:.3f} "
+                f"quote_kw_overlap={profile.avg_quote_keyword_overlap:.3f} "
+                f"fallback_rate={profile.fallback_rate:.3f} "
                 f"avg_retrieved_final={profile.avg_retrieved_final:.2f}"
             )
         print(f"report: {_display_path(output)}")
@@ -496,6 +579,10 @@ def _command_eval(args: argparse.Namespace) -> None:
         min_similarity=args.min_similarity,
         use_mmr=args.use_mmr,
         rewrite_query=args.rewrite_query,
+        hallucination_threshold=args.hallucination_threshold,
+        min_grounded_chunks=args.min_grounded_chunks,
+        max_quotes=args.max_quotes,
+        quote_max_chars=args.quote_max_chars,
         limit=args.limit,
         temperature=args.temperature,
         max_tokens=args.max_tokens,
@@ -510,7 +597,11 @@ def _command_eval(args: argparse.Namespace) -> None:
         "summary: "
         f"plain_kw={report.summary.avg_keyword_recall_plain:.3f} "
         f"rag_kw={report.summary.avg_keyword_recall_rag:.3f} "
-        f"rag_source_hit={report.summary.rag_source_hit_rate:.3f}"
+        f"rag_source_hit={report.summary.rag_source_hit_rate:.3f} "
+        f"sources={report.summary.answers_with_sources_rate:.3f} "
+        f"quotes={report.summary.answers_with_quotes_rate:.3f} "
+        f"quote_kw_overlap={report.summary.avg_quote_keyword_overlap:.3f} "
+        f"fallback_rate={report.summary.fallback_rate:.3f}"
     )
     print("per-question:")
     for item in report.results:

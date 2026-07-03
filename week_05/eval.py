@@ -6,10 +6,10 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from week_05.rag_qa import QaAnswer, answer_plain, answer_rag
+from week_05.rag_qa import QaAnswer, Quote, answer_plain, answer_rag
 
 PlainAnswerFn = Callable[[str, str, float, int | None], QaAnswer]
-RagAnswerFn = Callable[[str, str, Path, Path, str, int, float, int | None], QaAnswer]
+RagAnswerFn = Callable[..., QaAnswer]
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,11 @@ class EvalQuestionResult:
     source_hit: bool
     retrieved_count: int
     avg_retrieval_score: float
+    has_sources: bool
+    has_quotes: bool
+    quote_keyword_overlap: float
+    grounded: bool
+    fallback_reason: str | None
     plain_answer: str
     rag_answer: str
 
@@ -40,6 +45,10 @@ class EvalSummary:
     avg_keyword_recall_plain: float
     avg_keyword_recall_rag: float
     rag_source_hit_rate: float
+    answers_with_sources_rate: float
+    answers_with_quotes_rate: float
+    avg_quote_keyword_overlap: float
+    fallback_rate: float
 
 
 @dataclass(frozen=True)
@@ -61,6 +70,10 @@ class EvalProfileConfig:
     min_similarity: float = -1.0
     use_mmr: bool = False
     rewrite_query: bool = False
+    hallucination_threshold: float = 0.33
+    min_grounded_chunks: int = 1
+    max_quotes: int = 2
+    quote_max_chars: int = 140
 
 
 @dataclass(frozen=True)
@@ -69,6 +82,10 @@ class EvalProfileSummary:
     avg_keyword_recall_plain: float
     avg_keyword_recall_rag: float
     source_hit_rate: float
+    answers_with_sources_rate: float
+    answers_with_quotes_rate: float
+    avg_quote_keyword_overlap: float
+    fallback_rate: float
     avg_retrieved_final: float
 
 
@@ -117,6 +134,19 @@ def _source_hit(expected_sources: list[str], rag: QaAnswer) -> bool:
     return False
 
 
+def _quote_keyword_overlap(expected: list[str], answer: str, quotes: list[Quote]) -> float:
+    if not expected:
+        return 1.0
+    answer_norm = _normalize_text(answer)
+    quotes_norm = " ".join(_normalize_text(quote.text) for quote in quotes)
+    hits = 0
+    for keyword in expected:
+        needle = _normalize_text(keyword)
+        if needle in answer_norm and needle in quotes_norm:
+            hits += 1
+    return hits / len(expected)
+
+
 def load_questions(dataset_path: Path, source_root: Path) -> list[EvalQuestion]:
     payload = json.loads(dataset_path.read_text(encoding="utf-8"))
     questions = [
@@ -152,6 +182,10 @@ def run_eval(
     min_similarity: float = -1.0,
     use_mmr: bool = False,
     rewrite_query: bool = False,
+    hallucination_threshold: float = 0.33,
+    min_grounded_chunks: int = 1,
+    max_quotes: int = 2,
+    quote_max_chars: int = 140,
     limit: int | None = None,
     temperature: float = 0.2,
     max_tokens: int | None = 500,
@@ -181,20 +215,40 @@ def run_eval(
                 min_similarity=min_similarity,
                 use_mmr=use_mmr,
                 rewrite_query=rewrite_query,
+                hallucination_threshold=hallucination_threshold,
+                min_grounded_chunks=min_grounded_chunks,
+                max_quotes=max_quotes,
+                quote_max_chars=quote_max_chars,
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
         else:
-            rag = rag_fn(
-                question.question,
-                provider_name,
-                db_path,
-                source_root,
-                strategy,
-                top_k,
-                temperature,
-                max_tokens,
-            )
+            try:
+                rag = rag_fn(
+                    question.question,
+                    provider_name,
+                    db_path,
+                    source_root,
+                    strategy,
+                    top_k,
+                    temperature,
+                    max_tokens,
+                    hallucination_threshold=hallucination_threshold,
+                    min_grounded_chunks=min_grounded_chunks,
+                    max_quotes=max_quotes,
+                    quote_max_chars=quote_max_chars,
+                )
+            except TypeError:
+                rag = rag_fn(
+                    question.question,
+                    provider_name,
+                    db_path,
+                    source_root,
+                    strategy,
+                    top_k,
+                    temperature,
+                    max_tokens,
+                )
         results.append(
             EvalQuestionResult(
                 id=question.id,
@@ -204,6 +258,15 @@ def run_eval(
                 source_hit=_source_hit(question.expected_sources, rag),
                 retrieved_count=rag.retrieved_count,
                 avg_retrieval_score=rag.avg_retrieval_score,
+                has_sources=bool(rag.citations),
+                has_quotes=bool(rag.quotes),
+                quote_keyword_overlap=_quote_keyword_overlap(
+                    question.expected,
+                    rag.answer,
+                    rag.quotes,
+                ),
+                grounded=rag.grounded,
+                fallback_reason=rag.fallback_reason,
                 plain_answer=plain.answer,
                 rag_answer=rag.answer,
             )
@@ -216,6 +279,20 @@ def run_eval(
     rag_avg = sum(item.keyword_recall_rag for item in results) / run_count if run_count else 0.0
     source_hit_rate = (
         sum(1 for item in results if item.source_hit) / run_count if run_count else 0.0
+    )
+    answers_with_sources_rate = (
+        sum(1 for item in results if item.has_sources) / run_count if run_count else 0.0
+    )
+    answers_with_quotes_rate = (
+        sum(1 for item in results if item.has_quotes) / run_count if run_count else 0.0
+    )
+    avg_quote_keyword_overlap = (
+        sum(item.quote_keyword_overlap for item in results) / run_count if run_count else 0.0
+    )
+    fallback_rate = (
+        sum(1 for item in results if item.fallback_reason is not None) / run_count
+        if run_count
+        else 0.0
     )
 
     report = EvalReport(
@@ -230,6 +307,10 @@ def run_eval(
             avg_keyword_recall_plain=plain_avg,
             avg_keyword_recall_rag=rag_avg,
             rag_source_hit_rate=source_hit_rate,
+            answers_with_sources_rate=answers_with_sources_rate,
+            answers_with_quotes_rate=answers_with_quotes_rate,
+            avg_quote_keyword_overlap=avg_quote_keyword_overlap,
+            fallback_rate=fallback_rate,
         ),
         results=results,
     )
@@ -251,6 +332,10 @@ def _profile_summary(report: EvalReport) -> EvalProfileSummary:
         avg_keyword_recall_plain=report.summary.avg_keyword_recall_plain,
         avg_keyword_recall_rag=report.summary.avg_keyword_recall_rag,
         source_hit_rate=report.summary.rag_source_hit_rate,
+        answers_with_sources_rate=report.summary.answers_with_sources_rate,
+        answers_with_quotes_rate=report.summary.answers_with_quotes_rate,
+        avg_quote_keyword_overlap=report.summary.avg_quote_keyword_overlap,
+        fallback_rate=report.summary.fallback_rate,
         avg_retrieved_final=avg_retrieved,
     )
 
@@ -305,6 +390,10 @@ def run_eval_comparison(
             min_similarity=profile.min_similarity,
             use_mmr=profile.use_mmr,
             rewrite_query=profile.rewrite_query,
+            hallucination_threshold=profile.hallucination_threshold,
+            min_grounded_chunks=profile.min_grounded_chunks,
+            max_quotes=profile.max_quotes,
+            quote_max_chars=profile.quote_max_chars,
             limit=limit,
             temperature=temperature,
             max_tokens=max_tokens,

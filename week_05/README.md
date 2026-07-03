@@ -485,6 +485,140 @@ uv run python -m week_05.main eval --provider "GPT-4o mini" --source "week_05/co
 
 ---
 
+## Day 24 — Citations, Quotes, Anti-Hallucination
+
+### Goal
+
+Upgrade RAG answers to always include grounded evidence:
+
+- final answer text
+- sources (`source + section + chunk_id + score`)
+- short quotes (exact snippets from retrieved chunks)
+- fallback mode: if context is weak, assistant says "Не знаю..." and asks for clarification
+
+### Architecture
+
+- `rag_qa.py`
+  - adds `Quote` dataclass and grounded fields in `QaAnswer`
+  - deterministically builds quotes from retrieved chunks
+  - applies fallback before LLM generation when relevance is weak
+- `agent.py`
+  - passes hallucination/quote settings through `run_agent`
+- `cli.py`
+  - adds Day 24 flags for `ask` and `eval`
+  - interactive controls: `:hall-threshold`, `:min-grounded-chunks`, `:max-quotes`,
+    `:quote-max-chars`, `:compact`
+  - prints clean NotebookLM-style RAG output blocks
+- `eval.py`
+  - adds coverage/grounding metrics: sources, quotes, quote keyword overlap, fallback rate
+  - supports these metrics in both single eval and compare profiles
+
+### Run (bash)
+
+Grounded answer run:
+
+```bash
+uv run python -m week_05.main ask --mode rag --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.35 --rewrite-query --hallucination-threshold 0.33 --question "Что такое context management?"
+```
+
+Fallback run (out-of-corpus + high threshold):
+
+```bash
+uv run python -m week_05.main ask --mode rag --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.35 --hallucination-threshold 0.55 --question "Как приготовить пасту карбонара?"
+```
+
+Interactive run:
+
+```bash
+uv run python -m week_05.main ask --mode rag --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure
+```
+
+Useful interactive commands:
+
+```text
+:show
+:hall-threshold 0.33
+:min-grounded-chunks 1
+:max-quotes 2
+:quote-max-chars 140
+:compact on
+```
+
+Eval run:
+
+```bash
+uv run python -m week_05.main eval --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.35 --rewrite-query --hallucination-threshold 0.33
+```
+
+Eval compare run:
+
+```bash
+uv run python -m week_05.main eval --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.35 --rewrite-query --hallucination-threshold 0.33 --compare
+```
+
+### Example output (shape)
+
+```text
+=== RAG Answer ===
+model=gpt-4o-mini latency_s=1.12
+usage={"total_tokens":1234}
+
+Answer:
+...answer text...
+
+Sources:
+  - [C1] source=week_05/corpus/lecture-05-notes.md section=heading:RAG chunk_id=... score=0.4211
+
+Quotes:
+  - [C1] "short exact quote from retrieved chunk..."
+
+Grounding:
+  grounded=True fallback_reason=None
+
+Retrieval:
+  run_id=... model=text-embedding-3-small before=20 after_threshold=8 final=5 avg_score=0.4012
+```
+
+### What To Verify
+
+- Every RAG answer includes `Sources`.
+- Every RAG answer includes `Quotes` (unless compact mode hides them in terminal output).
+- Fallback (`grounded=False`) appears on weak context and includes retrieval diagnostics.
+- `eval` summary includes:
+  - `sources`
+  - `quotes`
+  - `quote_kw_overlap`
+  - `fallback_rate`
+- On the 10 in-corpus control questions `fallback_rate=0.0` is expected: all questions are
+  answerable, so the assistant should not say "не знаю". The fallback is demonstrated
+  separately via the out-of-corpus `ask` command below.
+- `quote_kw_overlap` is a deterministic keyword-overlap proxy (expected keyword present in
+  both the answer and a quote), not a semantic similarity judge.
+- Quotes are exact contiguous substrings of the retrieved chunk text (edges trimmed and
+  truncated with `...`), so each quote is verifiable against the source.
+
+### Troubleshooting
+
+- Fallback never triggers:
+  - increase `--hallucination-threshold`
+  - or ask out-of-corpus questions
+- Too many long quotes:
+  - lower `--max-quotes`
+  - lower `--quote-max-chars`
+- Too many fallback answers:
+  - decrease `--hallucination-threshold`
+  - or reduce retrieval filtering strictness
+
+### Demo flow (short)
+
+1. Ask one in-domain question and show answer + sources + quotes.
+2. Show retrieval diagnostics (`before/after/final/avg_score`).
+3. Ask one out-of-domain question and show fallback "Не знаю...".
+4. Run `eval` on 10 questions and show sources/quotes/quote_kw_overlap metrics
+   (`fallback_rate=0.0` here is expected; fallback is shown live in step 3).
+
+---
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
@@ -492,3 +626,4 @@ uv run python -m week_05.main eval --provider "GPT-4o mini" --source "week_05/co
 | 21 | Local document indexing pipeline: ingestion (`md/txt/py/pdf`), fixed + structure chunking, embeddings, SQLite index, metadata, strategy comparison | `-m week_05.main compare --source "week_05/corpus"`, `-m week_05.main --db "data/week_05/rag_index.sqlite" stats` | `documents.py`, `chunking.py`, `embeddings.py`, `index_store.py`, `indexer.py`, `cli.py`, `main.py` | done | _link_ |
 | 22 | First RAG query: plain vs rag, SQLite retrieval, citations, 10-question control eval | `-m week_05.main ask --mode both --source "week_05/corpus" --question "..."`, `-m week_05.main eval --source "week_05/corpus"` | `retrieval.py`, `rag_qa.py`, `eval.py`, `eval/questions.json`, `cli.py`, `tests/test_retrieval.py`, `tests/test_rag_qa_eval.py` | done | _link_ |
 | 23 | Reranking/filtering + query rewrite + baseline vs improved comparison | `-m week_05.main ask --mode rag --top-k-before 20 --min-similarity 0.35 --use-mmr --rewrite-query --question "..."`, `-m week_05.main eval --compare` | `agent.py`, `retrieval.py`, `rag_qa.py`, `eval.py`, `cli.py`, `tests/test_retrieval.py`, `tests/test_rag_qa_eval.py` | done | _link_ |
+| 24 | Grounded RAG output: mandatory sources + quotes + anti-hallucination fallback + grounding eval metrics | `-m week_05.main ask --mode rag --hallucination-threshold 0.33 --question "..."`, `-m week_05.main eval --hallucination-threshold 0.33 --compare` | `rag_qa.py`, `agent.py`, `cli.py`, `eval.py`, `tests/test_rag_qa_eval.py`, `README.md` | done | _link_ |
