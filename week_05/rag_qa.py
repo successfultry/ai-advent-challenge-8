@@ -235,7 +235,7 @@ def answer_rag(
     hallucination_threshold: float = 0.33,
     min_grounded_chunks: int = 1,
     max_quotes: int = 2,
-    quote_max_chars: int = 140,
+    quote_max_chars: int = 200,
     generator: GenerateFn | None = None,
     retriever: RetrieveFn | None = None,
 ) -> QaAnswer:

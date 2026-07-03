@@ -540,7 +540,7 @@ Useful interactive commands:
 :hall-threshold 0.33
 :min-grounded-chunks 1
 :max-quotes 2
-:quote-max-chars 140
+:quote-max-chars 200
 :compact on
 ```
 

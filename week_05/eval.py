@@ -73,7 +73,7 @@ class EvalProfileConfig:
     hallucination_threshold: float = 0.33
     min_grounded_chunks: int = 1
     max_quotes: int = 2
-    quote_max_chars: int = 140
+    quote_max_chars: int = 200
 
 
 @dataclass(frozen=True)
@@ -185,7 +185,7 @@ def run_eval(
     hallucination_threshold: float = 0.33,
     min_grounded_chunks: int = 1,
     max_quotes: int = 2,
-    quote_max_chars: int = 140,
+    quote_max_chars: int = 200,
     limit: int | None = None,
     temperature: float = 0.2,
     max_tokens: int | None = 500,

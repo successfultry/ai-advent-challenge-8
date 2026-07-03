@@ -29,7 +29,7 @@ def run_agent(
     hallucination_threshold: float = 0.33,
     min_grounded_chunks: int = 1,
     max_quotes: int = 2,
-    quote_max_chars: int = 140,
+    quote_max_chars: int = 200,
     temperature: float = 0.2,
     max_tokens: int | None = 500,
 ) -> AgentResult:
