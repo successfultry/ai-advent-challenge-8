@@ -429,7 +429,7 @@ uv run python -m week_05.main ask --mode rag --provider "GPT-4o mini" --source "
 Improved Day 23 run (rewrite + threshold + mmr):
 
 ```bash
-uv run python -m week_05.main ask --mode rag --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.35 --use-mmr --rewrite-query --question "Что такое context management?"
+uv run python -m week_05.main ask --mode rag --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.45 --use-mmr --rewrite-query --question "Что такое context management?"
 ```
 
 Improved Day 23 interactive run with runtime toggles:
@@ -452,7 +452,7 @@ Inside interactive mode:
 Compare baseline vs improved on the same dataset:
 
 ```bash
-uv run python -m week_05.main eval --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.35 --use-mmr --compare
+uv run python -m week_05.main eval --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.45 --use-mmr --compare
 ```
 
 ### What To Verify
