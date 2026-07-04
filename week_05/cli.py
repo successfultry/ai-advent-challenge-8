@@ -676,12 +676,17 @@ def _print_chat_turn(result: object, *, show_state: bool) -> None:
     )
     print("\nAnswer:")
     print(answer.answer)
-    print("\nSources:")
+    used_labels = getattr(answer, "used_labels", []) or []
+    print("\nUsed by answer:")
+    print(f"  {', '.join(used_labels) if used_labels else 'none cited by model'}")
+    print("\nSources (retrieved candidates, * = used by model):")
     if answer.citations:
-        for citation in answer.citations:
+        for idx, citation in enumerate(answer.citations, start=1):
+            label = getattr(citation, "label", "") or f"C{idx}"
+            used_mark = " *" if getattr(citation, "used", False) else ""
             print(
-                "  - "
-                f"chunk_id={citation.chunk_id} path={_display_path(citation.source)} "
+                f"  - [{label}]{used_mark} chunk_id={citation.chunk_id} "
+                f"path={_display_path(citation.source)} "
                 f"section={citation.section} score={citation.score:.4f}"
             )
     else:

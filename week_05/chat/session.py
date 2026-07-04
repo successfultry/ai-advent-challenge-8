@@ -15,6 +15,8 @@ class SourceRef:
     source: str
     section: str
     score: float
+    label: str | None = None
+    used: bool = False
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,8 @@ def load_session(path: Path) -> ChatSession:
                 source=str(item.get("source", "")),
                 section=str(item.get("section", "")),
                 score=float(item.get("score", 0.0)),
+                label=item.get("label"),
+                used=bool(item.get("used", False)),
             )
             for item in row.get("sources", [])
         ]

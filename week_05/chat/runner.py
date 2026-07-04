@@ -56,6 +56,13 @@ def _session_path(base_dir: Path, session_id: str) -> Path:
     return base_dir / f"{session_id}.json"
 
 
+def _relativize(source: str) -> str:
+    try:
+        return Path(source).resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return source
+
+
 def run_chat_turn(
     *,
     user_message: str,
@@ -132,9 +139,11 @@ def run_chat_turn(
     assistant_sources = [
         SourceRef(
             chunk_id=citation.chunk_id,
-            source=citation.source,
+            source=_relativize(citation.source),
             section=citation.section,
             score=citation.score,
+            label=citation.label,
+            used=citation.used,
         )
         for citation in answer.citations
     ]
