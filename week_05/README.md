@@ -619,6 +619,120 @@ Retrieval:
 
 ---
 
+## Day 25 — Mini-chat with RAG + Task Memory
+
+### Goal
+
+Build a production-like CLI mini-chat that:
+
+- stores dialogue history between turns
+- runs RAG retrieval on every user message
+- responds using retrieved context
+- always prints sources
+- tracks task memory (`goal`, `constraints`, `clarifications`, `fixed_terms`)
+
+### Architecture
+
+- New package: `week_05/chat/`
+  - `state.py`: deterministic task state extraction and rendering
+  - `session.py`: persistent chat session model + JSON storage
+  - `runner.py`: one-turn orchestration (`user -> state update -> rag -> save`)
+  - `scenarios.py`: long scenario replay and report metrics
+- Existing RAG stack is reused:
+  - retrieval is based on current user question only
+  - chat history + task state are passed to generation context (not retrieval query)
+- Session persistence:
+  - `data/week_05/chat_sessions/<session_id>.json`
+
+### Run (bash)
+
+Start chat:
+
+```bash
+uv run python -m week_05.main chat --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.20 --rewrite-query --hallucination-threshold 0.33 --show-state
+```
+
+Resume chat:
+
+```bash
+uv run python -m week_05.main chat --session-id chat-20260704120000-ab12cd34 --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --show-state
+```
+
+Replay scenario 1:
+
+```bash
+uv run python -m week_05.main chat-eval --scenario week_05/eval/chat_scenario_1.json --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.20 --rewrite-query --hallucination-threshold 0.33
+```
+
+Replay scenario 2:
+
+```bash
+uv run python -m week_05.main chat-eval --scenario week_05/eval/chat_scenario_2.json --provider "GPT-4o mini" --source "week_05/corpus" --strategy structure --top-k 5 --top-k-before 20 --min-similarity 0.20 --rewrite-query --hallucination-threshold 0.33
+```
+
+### Chat commands
+
+```text
+:help
+:state
+:history
+:save
+:exit
+```
+
+### Example output (shape)
+
+```text
+session_id=chat-20260704120000-ab12cd34 saved_to=data/week_05/chat_sessions/chat-20260704120000-ab12cd34.json
+
+Answer:
+...assistant response...
+
+Sources:
+  - chunk_id=... path=week_05/corpus/lecture-05-notes.md section=... score=...
+
+Grounding:
+  grounded=True fallback_reason=None
+
+Retrieval:
+  run_id=... model=text-embedding-3-small before=20 after_threshold=9 final=5 avg_score=0.41
+
+Task state:
+  Goal: ... | Constraints: ... | Clarifications: ...
+```
+
+### Scenario metrics
+
+- `source_presence_rate`: sources block emitted every assistant turn (should be `1.0`)
+- `grounded_source_rate`: real sources among grounded turns (fallback turns excluded)
+- `fallback_count`: number of fallback turns
+- `goal_retention_rate`: fraction of turns where the **answer or rewritten query**
+  still contains the goal's own terms (`expected_goal_keywords`)
+
+> Honesty note: `expected_goal_keywords` are taken from the goal formulation
+> itself, and retention is measured on the model's output only — not on the
+> stored `task_state.goal`. Checking the stored goal would make the rate
+> trivially `1.0` (the goal is always kept by construction). Goal *persistence*
+> in `task_state` is a separate, deterministic property shown via the session
+> file and `Task state:` block, so a `< 1.0` retention is expected and honest
+> (e.g. a "write the voiceover text" turn may drop the goal terms).
+
+### What To Verify
+
+- 2 scenarios run with 10-15 messages each.
+- Sources block exists on every assistant turn.
+- Goal remains retained through long dialogue.
+- Assistant keeps answering with grounded context or explicit fallback.
+
+### Demo flow (short)
+
+1. Start `chat` and show task state creation (`goal` + `constraints`).
+2. Ask 3-4 follow-up questions and show that state/history persist.
+3. Show session file path and resume the same session.
+4. Run `chat-eval` for two long scenarios and show report metrics.
+
+---
+
 ## Progress
 
 | Day | Task | Commands | Code | Status | Video |
@@ -627,3 +741,4 @@ Retrieval:
 | 22 | First RAG query: plain vs rag, SQLite retrieval, citations, 10-question control eval | `-m week_05.main ask --mode both --source "week_05/corpus" --question "..."`, `-m week_05.main eval --source "week_05/corpus"` | `retrieval.py`, `rag_qa.py`, `eval.py`, `eval/questions.json`, `cli.py`, `tests/test_retrieval.py`, `tests/test_rag_qa_eval.py` | done | _link_ |
 | 23 | Reranking/filtering + query rewrite + baseline vs improved comparison | `-m week_05.main ask --mode rag --top-k-before 20 --min-similarity 0.35 --use-mmr --rewrite-query --question "..."`, `-m week_05.main eval --compare` | `agent.py`, `retrieval.py`, `rag_qa.py`, `eval.py`, `cli.py`, `tests/test_retrieval.py`, `tests/test_rag_qa_eval.py` | done | _link_ |
 | 24 | Grounded RAG output: mandatory sources + quotes + anti-hallucination fallback + grounding eval metrics | `-m week_05.main ask --mode rag --hallucination-threshold 0.33 --question "..."`, `-m week_05.main eval --hallucination-threshold 0.33 --compare` | `rag_qa.py`, `agent.py`, `cli.py`, `eval.py`, `tests/test_rag_qa_eval.py`, `README.md` | done | _link_ |
+| 25 | Mini-chat with persistent history, per-turn RAG, task memory, and long scenario validation | `-m week_05.main chat --source "week_05/corpus" --show-state`, `-m week_05.main chat-eval --scenario week_05/eval/chat_scenario_1.json`, `-m week_05.main chat-eval --scenario week_05/eval/chat_scenario_2.json` | `chat/state.py`, `chat/session.py`, `chat/runner.py`, `chat/scenarios.py`, `cli.py`, `rag_qa.py`, `tests/test_chat.py`, `README.md` | done | _link_ |

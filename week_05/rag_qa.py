@@ -269,6 +269,7 @@ def answer_rag(
     min_grounded_chunks: int = 1,
     max_quotes: int = 2,
     quote_max_chars: int = 200,
+    chat_history: list[dict[str, str]] | None = None,
     generator: GenerateFn | None = None,
     retriever: RetrieveFn | None = None,
 ) -> QaAnswer:
@@ -356,7 +357,7 @@ def answer_rag(
         )
     context_block = "\n\n".join(context_parts)
 
-    messages = [
+    messages: list[dict[str, str]] = [
         {
             "role": "system",
             "content": (
@@ -366,11 +367,15 @@ def answer_rag(
                 "End with 'Sources: [C1], [C3]' listing the chunk ids you used."
             ),
         },
+    ]
+    if chat_history:
+        messages.extend(chat_history)
+    messages.append(
         {
             "role": "user",
             "content": f"Question: {normalized_question}\n\nContext:\n{context_block}",
-        },
-    ]
+        }
+    )
     content, usage, elapsed, model_id = call_model(
         provider_name,
         messages,

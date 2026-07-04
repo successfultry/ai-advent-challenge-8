@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 
 from week_05.agent import run_agent
+from week_05.chat.runner import run_chat_turn
+from week_05.chat.scenarios import run_chat_scenario
+from week_05.chat.state import render_task_state
 from week_05.embeddings import DEFAULT_EMBEDDING_MODEL
 from week_05.eval import EvalProfileConfig, run_eval, run_eval_comparison
 from week_05.index_store import IndexStore
@@ -83,6 +86,44 @@ def _parse_args() -> argparse.Namespace:
     p_eval.add_argument("--limit", type=int, default=None)
     p_eval.add_argument("--temperature", type=float, default=0.2)
     p_eval.add_argument("--max-tokens", type=int, default=500)
+
+    p_chat = sub.add_parser("chat", help="Run production-like mini-chat with RAG")
+    p_chat.add_argument("--session-id", default=None)
+    p_chat.add_argument("--provider", default="GPT-4o mini")
+    p_chat.add_argument("--source", default="week_05/corpus")
+    p_chat.add_argument("--strategy", choices=["fixed", "structure"], default="structure")
+    p_chat.add_argument("--top-k", type=int, default=5)
+    p_chat.add_argument("--top-k-before", type=int, default=20)
+    p_chat.add_argument("--min-similarity", type=float, default=0.2)
+    p_chat.add_argument("--use-mmr", action="store_true", default=False)
+    p_chat.add_argument("--rewrite-query", action="store_true", default=False)
+    p_chat.add_argument("--hallucination-threshold", type=float, default=0.33)
+    p_chat.add_argument("--min-grounded-chunks", type=int, default=1)
+    p_chat.add_argument("--max-quotes", type=int, default=2)
+    p_chat.add_argument("--quote-max-chars", type=int, default=200)
+    p_chat.add_argument("--history-limit", type=int, default=6)
+    p_chat.add_argument("--show-state", action="store_true", default=False)
+    p_chat.add_argument("--temperature", type=float, default=0.2)
+    p_chat.add_argument("--max-tokens", type=int, default=500)
+
+    p_chat_eval = sub.add_parser("chat-eval", help="Replay long chat scenario")
+    p_chat_eval.add_argument("--scenario", required=True)
+    p_chat_eval.add_argument("--provider", default="GPT-4o mini")
+    p_chat_eval.add_argument("--source", default="week_05/corpus")
+    p_chat_eval.add_argument("--strategy", choices=["fixed", "structure"], default="structure")
+    p_chat_eval.add_argument("--top-k", type=int, default=5)
+    p_chat_eval.add_argument("--top-k-before", type=int, default=20)
+    p_chat_eval.add_argument("--min-similarity", type=float, default=0.2)
+    p_chat_eval.add_argument("--use-mmr", action="store_true", default=False)
+    p_chat_eval.add_argument("--rewrite-query", action="store_true", default=False)
+    p_chat_eval.add_argument("--hallucination-threshold", type=float, default=0.33)
+    p_chat_eval.add_argument("--min-grounded-chunks", type=int, default=1)
+    p_chat_eval.add_argument("--max-quotes", type=int, default=2)
+    p_chat_eval.add_argument("--quote-max-chars", type=int, default=200)
+    p_chat_eval.add_argument("--history-limit", type=int, default=6)
+    p_chat_eval.add_argument("--temperature", type=float, default=0.2)
+    p_chat_eval.add_argument("--max-tokens", type=int, default=500)
+    p_chat_eval.add_argument("--output", default=None)
     return parser.parse_args()
 
 
@@ -622,6 +663,158 @@ def _command_eval(args: argparse.Namespace) -> None:
     print(f"report: {_display_path(output)}")
 
 
+def _chat_sessions_dir() -> Path:
+    return Path("data/week_05/chat_sessions")
+
+
+def _print_chat_turn(result: object, *, show_state: bool) -> None:
+    session = result.session
+    answer = result.answer
+    print(
+        f"\nsession_id={session.session_id} saved_to="
+        f"{_display_path(result.session_path)}"
+    )
+    print("\nAnswer:")
+    print(answer.answer)
+    print("\nSources:")
+    if answer.citations:
+        for citation in answer.citations:
+            print(
+                "  - "
+                f"chunk_id={citation.chunk_id} path={_display_path(citation.source)} "
+                f"section={citation.section} score={citation.score:.4f}"
+            )
+    else:
+        print("  - none")
+    print("\nGrounding:")
+    print(f"  grounded={answer.grounded} fallback_reason={answer.fallback_reason}")
+    print("\nRetrieval:")
+    print(
+        "  "
+        f"run_id={answer.retrieval_run_id} model={answer.retrieval_embedding_model} "
+        f"before={answer.retrieved_before} after_threshold={answer.retrieved_after_threshold} "
+        f"final={answer.retrieved_count} avg_score={answer.avg_retrieval_score:.4f}"
+    )
+    if show_state:
+        print("\nTask state:")
+        print(f"  {render_task_state(session.task_state)}")
+
+
+def _command_chat(args: argparse.Namespace) -> None:
+    source = Path(args.source)
+    db = Path(args.db)
+    sessions_dir = _chat_sessions_dir()
+    print("Chat mode. Type :help for commands.")
+    print("Type a message, empty line or 'exit'/'quit' to stop.")
+    print(f"session_id={args.session_id or '(new auto-generated)'}")
+    while True:
+        try:
+            raw = input("\nchat> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not raw or raw.lower() in {"exit", "quit", ":exit"}:
+            break
+        if raw == ":help":
+            print(
+                "\nChat commands:\n"
+                "  :help      show help\n"
+                "  :state     show task state\n"
+                "  :history   show last turns\n"
+                "  :save      save session snapshot now\n"
+                "  :exit      quit\n"
+            )
+            continue
+        if raw in {":state", ":history", ":save"} and args.session_id is None:
+            print("No session yet. Send first user message to create it.")
+            continue
+        if raw in {":state", ":history", ":save"} and args.session_id is not None:
+            session_path = sessions_dir / f"{args.session_id}.json"
+            if not session_path.exists():
+                print("Session file not found yet.")
+                continue
+            from week_05.chat.session import load_session, save_session
+
+            session = load_session(session_path)
+            if raw == ":state":
+                print(render_task_state(session.task_state))
+            elif raw == ":history":
+                print(f"turns={len(session.turns)}")
+                for turn in session.turns[-6:]:
+                    print(f"  - {turn.role}: {turn.text[:120]}")
+            else:
+                save_session(session_path, session)
+                print(f"saved_to={_display_path(session_path)}")
+            continue
+        if raw.startswith(":"):
+            print(f"Unknown command: {raw}")
+            continue
+
+        result = run_chat_turn(
+            user_message=raw,
+            provider_name=args.provider,
+            db_path=db,
+            source_root=source,
+            sessions_dir=sessions_dir,
+            session_id=args.session_id,
+            strategy=args.strategy,
+            top_k=args.top_k,
+            top_k_before=args.top_k_before,
+            min_similarity=args.min_similarity,
+            use_mmr=args.use_mmr,
+            rewrite_query=args.rewrite_query,
+            hallucination_threshold=args.hallucination_threshold,
+            min_grounded_chunks=args.min_grounded_chunks,
+            max_quotes=args.max_quotes,
+            quote_max_chars=args.quote_max_chars,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+            history_limit=args.history_limit,
+        )
+        args.session_id = result.session.session_id
+        _print_chat_turn(result, show_state=args.show_state)
+
+
+def _command_chat_eval(args: argparse.Namespace) -> None:
+    source = Path(args.source)
+    db = Path(args.db)
+    report = run_chat_scenario(
+        scenario_path=Path(args.scenario),
+        provider_name=args.provider,
+        db_path=db,
+        source_root=source,
+        sessions_dir=_chat_sessions_dir(),
+        strategy=args.strategy,
+        top_k=args.top_k,
+        top_k_before=args.top_k_before,
+        min_similarity=args.min_similarity,
+        use_mmr=args.use_mmr,
+        rewrite_query=args.rewrite_query,
+        hallucination_threshold=args.hallucination_threshold,
+        min_grounded_chunks=args.min_grounded_chunks,
+        max_quotes=args.max_quotes,
+        quote_max_chars=args.quote_max_chars,
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+        history_limit=args.history_limit,
+    )
+    payload = {
+        "scenario_id": report.scenario_id,
+        "turns_total": report.turns_total,
+        "source_presence_rate": report.source_presence_rate,
+        "grounded_source_rate": report.grounded_source_rate,
+        "fallback_count": report.fallback_count,
+        "goal_retention_rate": report.goal_retention_rate,
+        "session_path": report.session_path,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    if args.output is not None:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"report: {_display_path(output)}")
+
+
 def run() -> None:
     args = _parse_args()
     if args.command == "index":
@@ -634,3 +827,7 @@ def run() -> None:
         _command_ask(args)
     elif args.command == "eval":
         _command_eval(args)
+    elif args.command == "chat":
+        _command_chat(args)
+    elif args.command == "chat-eval":
+        _command_chat_eval(args)

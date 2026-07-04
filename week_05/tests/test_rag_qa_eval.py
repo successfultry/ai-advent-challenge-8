@@ -285,6 +285,65 @@ def test_rag_rewrite_passes_rewritten_question_to_retriever() -> None:
     assert out.query_used == "rewritten terms query"
 
 
+def test_rag_includes_chat_history_in_generation_messages() -> None:
+    captured: dict[str, list[dict[str, str]]] = {}
+
+    def fake_retriever(
+        _db: Path,
+        _src: Path,
+        _question: str,
+        _strategy: str,
+        _top_k: int,
+    ) -> RetrievalResult:
+        return RetrievalResult(
+            chunks=[
+                RetrievedChunk(
+                    chunk_id="c1",
+                    source="week_05/corpus/lecture-05-notes.md",
+                    title="lecture-05-notes",
+                    section="heading:RAG",
+                    strategy="structure",
+                    score=0.9,
+                    text="chunk text",
+                    start_char=0,
+                    end_char=10,
+                )
+            ],
+            run_id="run-1",
+            embedding_model_used="text-embedding-3-small",
+            retrieved_count=1,
+            avg_score=0.9,
+        )
+
+    def fake_generator(
+        _provider: str,
+        messages: list[dict[str, str]],
+        _temperature: float,
+        _max_tokens: int | None,
+    ) -> tuple[str, object | None, float, str]:
+        captured["messages"] = messages
+        return "answer\nSources: [C1]", None, 0.01, "fake-model"
+
+    out = answer_rag(
+        "what is rag",
+        "GPT-4o mini",
+        Path("db.sqlite"),
+        Path("week_05/corpus"),
+        generator=fake_generator,
+        retriever=fake_retriever,
+        chat_history=[
+            {"role": "system", "content": "Task state: goal=rag"},
+            {"role": "user", "content": "Earlier question"},
+            {"role": "assistant", "content": "Earlier answer"},
+        ],
+    )
+    assert out.grounded is True
+    messages = captured["messages"]
+    assert messages[1]["content"] == "Task state: goal=rag"
+    assert messages[2]["content"] == "Earlier question"
+    assert messages[3]["content"] == "Earlier answer"
+
+
 def test_quotes_are_substrings_of_chunk_text() -> None:
     chunk_text = "One deterministic quote lives in this chunk text."
 
