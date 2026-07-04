@@ -117,13 +117,28 @@ def test_run_chat_scenario_reports_metrics(
     )
 
     class _FakeRunResult:
-        def __init__(self, grounded: bool, fallback_reason: str | None) -> None:
+        def __init__(
+            self, grounded: bool, fallback_reason: str | None, *, has_citations: bool = True
+        ) -> None:
             self.session = ChatSession(
                 session_id="sc1",
                 created_at="x",
                 updated_at="x",
                 task_state=update_task_state(new_session().task_state, "goal: rag demo"),
                 turns=[],
+            )
+            citations = (
+                [
+                    Citation(
+                        chunk_id="c1",
+                        source="a.md",
+                        title="a",
+                        section="s",
+                        score=0.9,
+                    )
+                ]
+                if has_citations
+                else []
             )
             self.answer = QaAnswer(
                 mode="rag",
@@ -133,15 +148,7 @@ def test_run_chat_scenario_reports_metrics(
                 model="m",
                 latency_s=0.1,
                 usage=None,
-                citations=[
-                    Citation(
-                        chunk_id="c1",
-                        source="a.md",
-                        title="a",
-                        section="s",
-                        score=0.9,
-                    )
-                ],
+                citations=citations,
                 retrieved_count=1,
                 avg_retrieval_score=0.9,
                 grounded=grounded,
@@ -149,9 +156,18 @@ def test_run_chat_scenario_reports_metrics(
             )
             self.session_path = Path("data/week_05/chat_sessions/sc1.json")
 
-    responses = [_FakeRunResult(True, None), _FakeRunResult(False, "low_similarity")]
+    responses = [
+        _FakeRunResult(True, None, has_citations=True),
+        _FakeRunResult(False, "low_similarity", has_citations=False),
+    ]
+    sessions_dir = tmp_path / "sessions"
+    stale_session = sessions_dir / "sc1.json"
+    stale_session.parent.mkdir(parents=True, exist_ok=True)
+    stale_session.write_text("{}", encoding="utf-8")
+    session_exists_before_turn: list[bool] = []
 
     def fake_run_chat_turn(**_kwargs: object) -> _FakeRunResult:
+        session_exists_before_turn.append(stale_session.exists())
         return responses.pop(0)
 
     monkeypatch.setattr("week_05.chat.scenarios.run_chat_turn", fake_run_chat_turn)
@@ -160,9 +176,10 @@ def test_run_chat_scenario_reports_metrics(
         provider_name="GPT-4o mini",
         db_path=tmp_path / "db.sqlite",
         source_root=tmp_path / "corpus",
-        sessions_dir=tmp_path / "sessions",
+        sessions_dir=sessions_dir,
     )
     assert report.turns_total == 2
     assert report.source_presence_rate == 1.0
     assert report.fallback_count == 1
     assert report.grounded_source_rate == 1.0
+    assert session_exists_before_turn == [False, False]

@@ -49,8 +49,13 @@ def run_chat_scenario(
     if not messages:
         raise ValueError("Scenario must contain at least one message.")
 
+    # Scenario replay should be deterministic between runs, so we always
+    # start from a clean session file and avoid carry-over history.
+    (sessions_dir / f"{scenario_id}.json").unlink(missing_ok=True)
+
     run_result = None
-    source_block_count = 0
+    non_fallback_turns = 0
+    sourced_non_fallback_turns = 0
     grounded_turns = 0
     grounded_with_sources = 0
     fallback_count = 0
@@ -79,8 +84,10 @@ def run_chat_scenario(
             history_limit=history_limit,
         )
         answer = run_result.answer
-        # In our CLI, Sources block is always printed, even when empty.
-        source_block_count += 1
+        if answer.fallback_reason is None:
+            non_fallback_turns += 1
+            if answer.citations:
+                sourced_non_fallback_turns += 1
         if answer.grounded:
             grounded_turns += 1
             if answer.citations:
@@ -103,7 +110,9 @@ def run_chat_scenario(
 
     assert run_result is not None
     turns_total = len(messages)
-    source_presence_rate = source_block_count / turns_total if turns_total else 0.0
+    source_presence_rate = (
+        sourced_non_fallback_turns / non_fallback_turns if non_fallback_turns else 1.0
+    )
     grounded_source_rate = (
         grounded_with_sources / grounded_turns if grounded_turns else 1.0
     )

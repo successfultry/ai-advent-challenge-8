@@ -703,7 +703,7 @@ Task state:
 
 ### Scenario metrics
 
-- `source_presence_rate`: sources block emitted every assistant turn (should be `1.0`)
+- `source_presence_rate`: non-fallback turns that include real sources (`citations`)
 - `grounded_source_rate`: real sources among grounded turns (fallback turns excluded)
 - `fallback_count`: number of fallback turns
 - `goal_retention_rate`: fraction of turns where the **answer or rewritten query**
@@ -720,7 +720,7 @@ Task state:
 ### What To Verify
 
 - 2 scenarios run with 10-15 messages each.
-- Sources block exists on every assistant turn.
+- Non-fallback turns include real sources.
 - Goal remains retained through long dialogue.
 - Assistant keeps answering with grounded context or explicit fallback.
 
