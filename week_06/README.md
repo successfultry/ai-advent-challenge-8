@@ -243,6 +243,21 @@ The app provides 4 modes:
 
 Each mode prepends a small system instruction, then sends the final prompt to the local model.
 
+
+#### Prompt 1 — simple / OneDrive classification
+
+```text
+General
+Объясни, что такое локальная LLM, в 3 коротких пунктах.
+
+
+Explain_error
+sqlalchemy.exc.OperationalError: connection refused on localhost:5432
+Ответь в 3 пунктах: причина, проверка, фикс.
+
+
+```
+
 ### What To Verify (Day 27)
 
 - the page opens on `http://127.0.0.1:8000`;
