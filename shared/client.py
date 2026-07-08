@@ -13,15 +13,19 @@ load_dotenv()
 
 
 def available_providers() -> list[str]:
-    return [name for name, (_, _, env_var) in PROVIDERS.items() if os.environ.get(env_var)]
+    return [
+        name
+        for name, provider in PROVIDERS.items()
+        if provider.api_key_env is None or os.environ.get(provider.api_key_env)
+    ]
 
 
 def get_client(provider_name: str) -> tuple[OpenAI, str]:
-    base_url, model_id, env_var = PROVIDERS[provider_name]
-    api_key = os.environ.get(env_var)
+    provider = PROVIDERS[provider_name]
+    api_key = "not-needed" if provider.api_key_env is None else os.environ.get(provider.api_key_env)
     if not api_key:
-        raise OSError(f"Missing env var: {env_var}")
-    return OpenAI(base_url=base_url, api_key=api_key), model_id
+        raise OSError(f"Missing env var: {provider.api_key_env}")
+    return OpenAI(base_url=provider.base_url, api_key=api_key), provider.model_id
 
 
 def build_payload(

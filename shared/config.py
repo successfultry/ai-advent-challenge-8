@@ -1,15 +1,36 @@
 from __future__ import annotations
 
-PROVIDERS: dict[str, tuple[str, str, str]] = {
-    "DeepSeek V3": ("https://api.deepseek.com", "deepseek-chat", "DEEPSEEK_API_KEY"),
-    "DeepSeek R1": ("https://api.deepseek.com", "deepseek-reasoner", "DEEPSEEK_API_KEY"),
-    "GPT-4o mini": ("https://api.openai.com/v1", "gpt-4o-mini", "OPENAI_API_KEY"),
-    "GPT-4o": ("https://api.openai.com/v1", "gpt-4o", "OPENAI_API_KEY"),
-    "Llama 8B (Groq)": ("https://api.groq.com/openai/v1", "llama-3.1-8b-instant", "GROQ_API_KEY"),
-    "Llama 70B (Groq)": (
+from typing import NamedTuple
+
+
+class Provider(NamedTuple):
+    base_url: str
+    model_id: str
+    api_key_env: str | None
+
+
+PROVIDERS: dict[str, Provider] = {
+    "DeepSeek V3": Provider("https://api.deepseek.com", "deepseek-chat", "DEEPSEEK_API_KEY"),
+    "DeepSeek R1": Provider("https://api.deepseek.com", "deepseek-reasoner", "DEEPSEEK_API_KEY"),
+    "GPT-4o mini": Provider("https://api.openai.com/v1", "gpt-4o-mini", "OPENAI_API_KEY"),
+    "GPT-4o": Provider("https://api.openai.com/v1", "gpt-4o", "OPENAI_API_KEY"),
+    "Llama 8B (Groq)": Provider(
+        "https://api.groq.com/openai/v1", "llama-3.1-8b-instant", "GROQ_API_KEY"
+    ),
+    "Llama 70B (Groq)": Provider(
         "https://api.groq.com/openai/v1",
         "llama-3.3-70b-versatile",
         "GROQ_API_KEY",
+    ),
+    "Qwen2.5 Coder 7B (Ollama, local)": Provider(
+        "http://localhost:11434/v1",
+        "qwen2.5-coder:7b",
+        None,
+    ),
+    "Qwen2.5 Coder 3B (Ollama, local)": Provider(
+        "http://localhost:11434/v1",
+        "qwen2.5-coder:3b",
+        None,
     ),
 }
 
