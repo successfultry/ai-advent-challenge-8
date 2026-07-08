@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Local LLM Dev Workbench</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --card: #131a2e;
+        --card-alt: #1b2340;
+        --text: #e8ecf8;
+        --muted: #9aa4c7;
+        --ok: #30d158;
+        --err: #ff453a;
+        --accent: #6ea8fe;
+        --accent-2: #8f7dff;
+        --border: #2a3661;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        background: radial-gradient(1200px 600px at 10% -10%, #182446 0%, var(--bg) 55%);
+        color: var(--text);
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+        display: grid;
+        gap: 16px;
+      }
+      .card {
+        background: linear-gradient(180deg, var(--card) 0%, #111833 100%);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+      }
+      .header {
+        display: grid;
+        gap: 10px;
+      }
+      .header h1 {
+        margin: 0;
+        font-size: 22px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .inline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      .pill {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: #141d38;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #6c758f;
+      }
+      .dot.ok {
+        background: var(--ok);
+      }
+      .dot.err {
+        background: var(--err);
+      }
+      button,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button {
+        background: linear-gradient(180deg, var(--accent) 0%, #588ffe 100%);
+        color: #021132;
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: linear-gradient(180deg, var(--accent-2) 0%, #6f5dff 100%);
+      }
+      button:disabled {
+        opacity: 0.7;
+        cursor: wait;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .field {
+        display: grid;
+        gap: 8px;
+      }
+      label {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      select,
+      textarea {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--card-alt);
+        color: var(--text);
+        padding: 10px;
+      }
+      textarea {
+        min-height: 270px;
+        resize: vertical;
+      }
+      pre {
+        margin: 0;
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #0d142b;
+        color: #d3dbff;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: pre-wrap;
+        min-height: 270px;
+      }
+      .meta {
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .history-list {
+        display: grid;
+        gap: 8px;
+      }
+      .history-item {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #141c37;
+        padding: 10px;
+        cursor: pointer;
+      }
+      .history-item:hover {
+        border-color: #3d4f89;
+      }
+      .history-mode {
+        font-size: 12px;
+        color: var(--accent);
+        margin-bottom: 6px;
+      }
+      .hidden {
+        display: none;
+      }
+      @media (max-width: 960px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <section class="card header">
+        <h1>Local LLM Dev Workbench</h1>
+        <div class="inline">
+          <span class="pill">Provider: <strong id="provider-pill">{{ default_provider }}</strong></span>
+          <span class="pill">Endpoint: <strong>{{ endpoint }}</strong></span>
+          <span class="pill">Cloud models: <strong>not used</strong></span>
+          <span class="pill"><span id="health-dot" class="dot"></span> <span id="health-text">unknown</span></span>
+          <button id="health-btn" class="secondary" type="button">Check local model</button>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <div class="field">
+            <label for="provider">Provider</label>
+            <select id="provider">
+              {% for provider in providers %}
+              <option value="{{ provider }}" {% if provider == default_provider %}selected{% endif %}>
+                {{ provider }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="mode">Mode</label>
+            <select id="mode">
+              {% for mode in modes %}
+              <option value="{{ mode.id }}">{{ mode.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt" placeholder="Paste a request..."></textarea>
+          </div>
+          <div class="inline">
+            <button id="ask-btn" type="button">Ask local LLM</button>
+            <span id="loading" class="muted hidden">Thinking…</span>
+          </div>
+        </article>
+
+        <article class="card">
+          <label>Response</label>
+          <pre id="response">Waiting for your prompt…</pre>
+          <div id="response-meta" class="meta"></div>
+        </article>
+      </section>
+
+      <section class="card">
+        <div class="inline" style="justify-content: space-between">
+          <strong>History (last 5)</strong>
+          <span class="muted">Click an item to refill prompt + mode</span>
+        </div>
+        <div id="history" class="history-list"></div>
+      </section>
+    </main>
+
+    <script>
+      const providerSelect = document.getElementById("provider");
+      const modeSelect = document.getElementById("mode");
+      const promptInput = document.getElementById("prompt");
+      const askBtn = document.getElementById("ask-btn");
+      const loading = document.getElementById("loading");
+      const responseNode = document.getElementById("response");
+      const responseMeta = document.getElementById("response-meta");
+      const historyNode = document.getElementById("history");
+      const healthBtn = document.getElementById("health-btn");
+      const healthText = document.getElementById("health-text");
+      const healthDot = document.getElementById("health-dot");
+      const providerPill = document.getElementById("provider-pill");
+
+      function setLoading(isLoading) {
+        askBtn.disabled = isLoading;
+        loading.classList.toggle("hidden", !isLoading);
+      }
+
+      function setHealth(ok, text) {
+        healthText.textContent = text;
+        healthDot.classList.remove("ok", "err");
+        healthDot.classList.add(ok ? "ok" : "err");
+      }
+
+      function renderHistory(items) {
+        historyNode.innerHTML = "";
+        if (!items.length) {
+          historyNode.innerHTML = `<div class="muted">No history yet.</div>`;
+          return;
+        }
+        for (const item of items) {
+          const div = document.createElement("div");
+          div.className = "history-item";
+          div.innerHTML = `
+            <div class="history-mode">${item.mode}</div>
+            <div>${item.prompt.slice(0, 180)}</div>
+            <div class="meta">latency_s=${item.latency_seconds.toFixed(2)} · finish_reason=${item.finish_reason}</div>
+          `;
+          div.addEventListener("click", () => {
+            modeSelect.value = item.mode;
+            promptInput.value = item.prompt;
+          });
+          historyNode.appendChild(div);
+        }
+      }
+
+      async function loadHistory() {
+        const provider = providerSelect.value;
+        const res = await fetch(`/history?provider=${encodeURIComponent(provider)}`);
+        const data = await res.json();
+        renderHistory(data.items || []);
+      }
+
+      async function checkHealth() {
+        const provider = providerSelect.value;
+        providerPill.textContent = provider;
+        setHealth(false, "checking...");
+        try {
+          const res = await fetch(`/health?provider=${encodeURIComponent(provider)}`);
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            setHealth(false, data.error || "unreachable");
+            return;
+          }
+          setHealth(true, `ok · ${data.model}`);
+        } catch {
+          setHealth(false, "request failed");
+        }
+      }
+
+      askBtn.addEventListener("click", async () => {
+        const provider = providerSelect.value;
+        const mode = modeSelect.value;
+        const prompt = promptInput.value.trim();
+        if (!prompt) {
+          responseNode.textContent = "Prompt must not be empty.";
+          return;
+        }
+        setLoading(true);
+        responseNode.textContent = "Waiting for response…";
+        responseMeta.textContent = "";
+        try {
+          const res = await fetch("/ask", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider, mode, prompt }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            responseNode.textContent = data.error || "Request failed.";
+            responseMeta.textContent = `HTTP ${res.status}`;
+            return;
+          }
+          responseNode.textContent = data.text;
+          responseMeta.textContent = `latency_s=${data.latency_seconds.toFixed(2)} · finish_reason=${data.finish_reason} · model=${data.model}`;
+          await loadHistory();
+        } catch {
+          responseNode.textContent = "Network error while calling local app.";
+          responseMeta.textContent = "";
+        } finally {
+          setLoading(false);
+        }
+      });
+
+      providerSelect.addEventListener("change", async () => {
+        providerPill.textContent = providerSelect.value;
+        await checkHealth();
+        await loadHistory();
+      });
+      healthBtn.addEventListener("click", checkHealth);
+
+      checkHealth();
+      loadHistory();
+    </script>
+  </body>
+</html>

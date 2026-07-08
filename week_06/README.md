@@ -4,9 +4,13 @@
 
 ```text
 week_06/
-├── main.py          # entrypoint: interactive ask loop, or one-shot with --prompt
-├── local_client.py  # thin Day 26 wrapper over shared/client.py
-└── README.md        # commands, manual prompts, demo flow, progress
+├── main.py                   # Day 26 interactive ask loop / one-shot mode
+├── local_client.py           # thin local Ollama wrapper over shared/client.py
+├── workbench.py              # Day 27 use-case layer (modes + history + ask)
+├── web_app.py                # Day 27 Flask transport layer
+├── templates/
+│   └── workbench.html        # Day 27 UI
+└── README.md                 # commands, prompts, app runbook, progress
 ```
 
 No `__init__.py` in `week_06/` (PEP 420 namespace package), same run style as earlier weeks:
@@ -193,6 +197,70 @@ ask> exit
 - No local-vs-cloud comparison yet.
 - No persistent history between turns; the ask loop is stateless per prompt (Day 26 scope).
 
+## Day 27 — Integrate Local LLM in an App
+
+### Goal
+
+Ship a real local app that uses the local Ollama model:
+
+- app sends requests to local LLM;
+- app receives and displays answers;
+- app works without cloud models.
+
+### Architecture
+
+The implementation is intentionally split so Day 27 stays simple now, but can be extended later:
+
+- **UI / transport layer**: Flask app (`week_06/web_app.py`) and HTML UI (`week_06/templates/workbench.html`);
+- **Use-case layer**: prompt modes, prompt building, request handling, in-memory history (`week_06/workbench.py`);
+- **LLM layer**: existing local provider wrapper (`week_06/local_client.py`) backed by `shared/client.py`;
+- **Future retrieval layer**: not implemented now (reserved for RAG / TG-export search later).
+
+### Run Day 27 App
+
+```bash
+# once (already done if flask is installed)
+uv add flask
+
+# start local web app
+uv run python -m week_06.web_app
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+### Modes
+
+The app provides 4 modes:
+
+- `general`
+- `explain_error`
+- `generate_pytest`
+- `architecture_review`
+
+Each mode prepends a small system instruction, then sends the final prompt to the local model.
+
+### What To Verify (Day 27)
+
+- the page opens on `http://127.0.0.1:8000`;
+- **Check local model** returns healthy status;
+- mode switch changes behavior (error explanation vs tests vs architecture review);
+- response includes `latency_s`, `finish_reason`, and model id;
+- history shows the last 5 requests and can refill prompt/mode.
+
+### Demo Flow (Day 27)
+
+1. Start app: `uv run python -m week_06.web_app`.
+2. Open `http://127.0.0.1:8000`.
+3. Click **Check local model**.
+4. Run `explain_error` with a terminal stack trace.
+5. Run `generate_pytest` with a small Flask endpoint snippet.
+6. Run `architecture_review` with a short AWS lifecycle prompt.
+7. Show response metadata and history refill.
+
 ## Troubleshooting (bash + Ollama)
 
 - `model not found`:
@@ -222,3 +290,4 @@ ask> exit
 | Day | Task | Commands | Code | Status | Video |
 |-----|------|----------|------|--------|-------|
 | 26 | Launch local LLM through Ollama, prove CLI/API access, run 3 manual prompts of different complexity | `ollama run qwen2.5-coder:7b`, `curl /v1/models`, `-m week_06.main --prompt "..."` | `main.py`, `local_client.py`, `shared/config.py`, `shared/client.py`, `README.md` | done | _link_ |
+| 27 | Integrate local LLM into a real local app (Flask web UI + prompt modes + request history) | `uv run python -m week_06.web_app` | `web_app.py`, `workbench.py`, `templates/workbench.html`, `local_client.py`, `README.md` | done | _link_ |
