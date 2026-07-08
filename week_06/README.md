@@ -91,21 +91,22 @@ How complexity is graded:
 
 ```text
 Мы строим cloud-based development and validation studio на AWS.
-Нужно описать lifecycle flow для on-demand compute environment:
+Опиши lifecycle flow для on-demand compute environment:
 create -> ready -> active -> stop -> cleanup.
 
-Сделай архитектурную записку:
-1. state machine и допустимые transitions;
+Ответ дай в Markdown:
+1. state machine;
 2. где нужны idempotency keys;
 3. где нужны retries/backoff;
 4. как чистить zombie resources;
-5. какие CloudWatch metrics и alerts нужны минимально;
-6. какие IAM и Secrets Manager guardrails включить по умолчанию.
+5. минимальные CloudWatch metrics;
+6. базовые IAM и Secrets Manager guardrails.
 
 Ограничения:
 - backend: Python, Flask, SQLAlchemy, boto3;
-- без overengineering;
-- ответ в Markdown с короткой таблицей risk -> mitigation.
+- без кода;
+- коротко;
+- добавь таблицу risk -> mitigation максимум на 3 строки.
 ```
 
 ## Run (bash)
