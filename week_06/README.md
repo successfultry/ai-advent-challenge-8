@@ -60,15 +60,16 @@ Day 26 does not require RAG, MCP, memory, or an agent. This is a local inference
 
 ### Manual Prompts
 
-Три промпта, которые я прогоняю в демо руками (по одному). Они специально лежат в README, а не в
-коде — Day 26 про живое взаимодействие с моделью, а не про автопрогон.
+Three prompts run by hand in the demo (one at a time). They live in the README, not in code —
+Day 26 is about live interaction with the model, not batch automation. Prompt bodies are kept in
+Russian on purpose; technical terms stay in English.
 
-Как определяется сложность:
+How complexity is graded:
 
-- **simple** — одна операция, мало контекста, строгий короткий формат (классификация в JSON);
-- **medium** — надо сгенерировать код + тест + выдержать формат вывода (Flask + pytest);
-- **complex** — много ограничений сразу: state machine, idempotency, retries, cleanup,
-  CloudWatch, IAM/Secrets — модель должна держать всё это в одном ответе.
+- **simple** — single operation, little context, strict short format (JSON classification);
+- **medium** — generate code + test and hold the output format (Flask + pytest);
+- **complex** — many constraints at once: state machine, idempotency, retries, cleanup,
+  CloudWatch, IAM/Secrets — the model must keep all of it in one answer.
 
 #### Prompt 1 — simple / OneDrive classification
 
@@ -110,45 +111,45 @@ create -> ready -> active -> stop -> cleanup.
 
 ## Run (bash)
 
-Что делает каждая команда:
+What each command does:
 
 ```bash
-# проверить, что Ollama установлена
+# check Ollama is installed
 ollama --version
 
-# посмотреть, какие модели скачаны локально
+# list models pulled locally
 ollama list
 
-# прямой прогон через CLI самой Ollama (доказательство, что модель локальная)
+# direct CLI run through Ollama itself (proves the model is local)
 ollama run qwen2.5-coder:7b "Коротко объясни, что такое локальная LLM"
 
-# доказательство, что живёт OpenAI-совместимый HTTP API (его и дёргает shared/client.py)
+# proves the OpenAI-compatible HTTP API is up (this is what shared/client.py calls)
 curl http://localhost:11434/v1/models
 ```
 
-### Интерактивный (ask) режим — основной способ
+### Interactive (ask) mode — main path
 
-Запускаешь без `--prompt` и вводишь запросы вживую, модель отвечает в цикле. `exit`/`quit`/пустая
-строка — выход. Именно так гоняются 3 промпта в демо.
+Start without `--prompt` and type requests live; the model answers in a loop. `exit`/`quit`/empty
+line exits. This is how the 3 prompts are run in the demo.
 
 ```bash
-# дефолтный провайдер (7B)
+# default provider (7B)
 uv run python -m week_06.main
 
-# послабее, если тяжело по памяти (3B)
+# lighter, if memory is tight (3B)
 uv run python -m week_06.main --provider "Qwen2.5 Coder 3B (Ollama, local)"
 ```
 
 ```text
-ask> <вставляешь Prompt 1 из README>
-ask> <вставляешь Prompt 2>
-ask> <вставляешь Prompt 3>
+ask> <paste Prompt 1 from README>
+ask> <paste Prompt 2>
+ask> <paste Prompt 3>
 ask> exit
 ```
 
-### One-shot режим — для скрипта/одиночного запроса
+### One-shot mode — for scripts / a single request
 
-Когда нужен один ответ без цикла (передаёшь prompt аргументом):
+When you need a single answer without the loop (prompt passed as an argument):
 
 ```bash
 uv run python -m week_06.main --prompt "Коротко объясни, что такое локальная LLM"
@@ -160,8 +161,8 @@ uv run python -m week_06.main --prompt "Коротко объясни, что т
 - `ollama run ...` returns an answer locally.
 - `curl http://localhost:11434/v1/models` returns local model metadata.
 - `uv run python -m week_06.main` opens the `ask>` loop and answers each typed prompt.
-- каждый ответ печатает: provider, model id, latency, finish_reason, текст ответа.
-- три промпта показывают рост сложности: classification -> code -> architecture.
+- each answer prints: provider, model id, latency, finish_reason, answer text.
+- the three prompts show rising complexity: classification -> code -> architecture.
 
 ## Example Output
 
