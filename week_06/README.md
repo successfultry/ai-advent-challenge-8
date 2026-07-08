@@ -42,8 +42,7 @@ Qwen2.5 Coder 7B (Ollama, local) -> qwen2.5-coder:7b
 Qwen2.5 Coder 3B (Ollama, local) -> qwen2.5-coder:3b
 ```
 
-`shared/client.py` handles them through the same OpenAI SDK path used by cloud providers. Cloud
-providers still require API keys; local providers use `api_key_env=None` in config.
+`shared/client.py` handles them through the same OpenAI SDK path used by cloud providers. Cloud providers still require API keys; local providers use `api_key_env=None` in config.
 
 ## Day 26 — Local LLM Launch
 
