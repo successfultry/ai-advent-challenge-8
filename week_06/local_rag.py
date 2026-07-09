@@ -613,16 +613,31 @@ def _turn_block(
     expected_sources: list[str],
     retrieval_label: str,
 ) -> dict:
+    used = set(turn.answer.used_labels)
+    used_sources = [
+        {
+            "label": chunk.label,
+            "source": _display_path(chunk.source),
+            "section": chunk.section,
+            "chunk_id": chunk.chunk_id,
+        }
+        for chunk in turn.retrieved
+        if chunk.label in used
+    ]
     return {
         "retrieval": retrieval_label,
         "generation_provider": turn.answer.provider,
         "model": turn.answer.model,
+        "finish_reason": turn.answer.finish_reason,
         "retrieved_count": len(turn.retrieved),
         "keyword_recall": _normalize_bool_hit(expected, turn.answer.text),
         "source_hit": _source_hit(expected_sources, turn.retrieved),
         "retrieval_latency_s": turn.retrieval_latency_s,
         "generation_latency_s": turn.generation_latency_s,
         "total_latency_s": turn.retrieval_latency_s + turn.generation_latency_s,
+        "answer_text": turn.answer.text,
+        "used_source_labels": turn.answer.used_labels,
+        "used_sources": used_sources,
         "fallback_reason": turn.answer.fallback_reason,
     }
 

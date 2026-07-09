@@ -363,7 +363,7 @@ uv run python -m week_06.local_rag compare --question "Что такое cosine 
 uv run python -m week_06.local_rag compare --question "Что такое cosine similarity?" --cloud-retrieval vector
 
 # mini evaluation with symmetric local/cloud metrics (quality/speed/stability)
-uv run python -m week_06.local_rag eval --limit 3
+uv run python -m week_06.local_rag eval --limit 2
 ```
 
 Interactive ask mode:
