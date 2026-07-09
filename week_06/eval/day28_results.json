@@ -1,0 +1,75 @@
+{
+  "mode": "day28_local_vs_cloud_rag",
+  "db": "data/week_05/rag_index.sqlite",
+  "dataset": "week_05/eval/questions.json",
+  "strategy_filter": null,
+  "top_k": 5,
+  "cloud_retrieval_mode": "lexical",
+  "local_pipeline": {
+    "retrieval": "lexical (local, no network)",
+    "generation_provider": "Qwen2.5 Coder 7B (Ollama, local)"
+  },
+  "cloud_pipeline": {
+    "retrieval": "lexical (shared local context)",
+    "generation_provider": "DeepSeek V3",
+    "enabled": true
+  },
+  "summary": {
+    "questions_requested": 1,
+    "questions_processed": 1,
+    "success_count": 1,
+    "failure_count": 0,
+    "cloud_compared": true,
+    "cloud_note": null,
+    "local": {
+      "count": 1,
+      "avg_keyword_recall": 0.75,
+      "source_hit_rate": 1.0,
+      "avg_retrieved_count": 5.0,
+      "avg_retrieval_latency_s": 0.1680936999619007,
+      "avg_generation_latency_s": 115.33943470008671,
+      "avg_total_latency_s": 115.50752840004861,
+      "fallback_count": 0
+    },
+    "cloud": {
+      "count": 1,
+      "avg_keyword_recall": 0.5,
+      "source_hit_rate": 1.0,
+      "avg_retrieved_count": 5.0,
+      "avg_retrieval_latency_s": 0.1680936999619007,
+      "avg_generation_latency_s": 1.5715313996188343,
+      "avg_total_latency_s": 1.739625099580735,
+      "fallback_count": 0
+    }
+  },
+  "results": [
+    {
+      "id": "q01",
+      "question": "Чем max_tokens отличается от context window согласно материалам?",
+      "local": {
+        "retrieval": "lexical (local)",
+        "generation_provider": "Qwen2.5 Coder 7B (Ollama, local)",
+        "model": "qwen2.5-coder:7b",
+        "retrieved_count": 5,
+        "keyword_recall": 0.75,
+        "source_hit": true,
+        "retrieval_latency_s": 0.1680936999619007,
+        "generation_latency_s": 115.33943470008671,
+        "total_latency_s": 115.50752840004861,
+        "fallback_reason": null
+      },
+      "cloud": {
+        "retrieval": "lexical (shared local context)",
+        "generation_provider": "DeepSeek V3",
+        "model": "deepseek-chat",
+        "retrieved_count": 5,
+        "keyword_recall": 0.5,
+        "source_hit": true,
+        "retrieval_latency_s": 0.1680936999619007,
+        "generation_latency_s": 1.5715313996188343,
+        "total_latency_s": 1.739625099580735,
+        "fallback_reason": null
+      }
+    }
+  ]
+}

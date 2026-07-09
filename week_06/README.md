@@ -8,8 +8,11 @@ week_06/
 ├── local_client.py           # thin local Ollama wrapper over shared/client.py
 ├── workbench.py              # Day 27 use-case layer (modes + history + ask)
 ├── web_app.py                # Day 27 Flask transport layer
+├── local_rag.py              # Day 28 RAG: local lexical retrieval, local vs cloud generation
 ├── templates/
 │   └── workbench.html        # Day 27 UI
+├── static/
+│   └── favicon.ico           # web app tab icon
 └── README.md                 # commands, prompts, app runbook, progress
 ```
 
@@ -243,19 +246,28 @@ The app provides 4 modes:
 
 Each mode prepends a small system instruction, then sends the final prompt to the local model.
 
-
-#### Prompt 1 — simple / OneDrive classification
+### Day 27 Sample Inputs
 
 ```text
-General
+Mode: general
 Объясни, что такое локальная LLM, в 3 коротких пунктах.
+```
 
-
-Explain_error
+```text
+Mode: explain_error
 sqlalchemy.exc.OperationalError: connection refused on localhost:5432
 Ответь в 3 пунктах: причина, проверка, фикс.
+```
 
+```text
+Mode: generate_pytest
+from flask import Flask, jsonify
 
+app = Flask(__name__)
+
+@app.get("/healthz")
+def healthz():
+    return jsonify({"status": "ok", "service": "cloud-studio"}), 200
 ```
 
 ### What To Verify (Day 27)
@@ -276,6 +288,114 @@ sqlalchemy.exc.OperationalError: connection refused on localhost:5432
 6. Run `architecture_review` with a short AWS lifecycle prompt.
 7. Show response metadata and history refill.
 
+## Day 28 — Local LLM + Local RAG (Week 5 index reuse)
+
+### Goal
+
+Reuse the existing Week 5 SQLite index for RAG where **retrieval is local lexical** and only the
+**generator** changes:
+
+- **Local (required flow):** lexical retrieval + local Ollama generation. Fully offline, no network.
+- **Cloud (comparison):** the **same** lexical context + cloud generation (DeepSeek/GPT).
+
+Keeping retrieval identical means the comparison isolates a single variable — the generator — so
+`compare`/`eval` show honestly what you gain/lose by going local. Both report **symmetric metrics**
+(retrieval latency, generation latency, total latency, keyword recall, source hit) side by side.
+
+### Why local lexical retrieval (the embedding-space point)
+
+Week 5 stored chunk vectors with `text-embedding-3-small` (OpenAI, 1536 dims). For vector search
+the **query** must be embedded by the **same model into the same space**:
+
+- a local embedder gives either a different dimensionality (cosine breaks) or the same
+  dimensionality in a different space (cosine ranks are meaningless);
+- re-embedding locally would mean rebuilding the whole index.
+
+So local retrieval is **lexical (TF-IDF over `chunks.text`)** — no vectors, fully local, nothing to
+download. The stored cloud vectors are intentionally ignored in the default flow.
+
+### Optional: cloud vector retrieval (`--cloud-retrieval vector`)
+
+The stored OpenAI vectors *are* usable if the query is embedded by the **same** OpenAI model. As an
+optional experiment, `compare`/`eval` accept `--cloud-retrieval vector`: the cloud side then embeds
+the query via OpenAI `text-embedding-3-small` and does cosine over the stored `embedding_json`
+(needs `OPENAI_API_KEY`). This makes it a full local-stack vs cloud-stack comparison, but it changes
+two variables at once (retrieval + generation), so the default stays `lexical`.
+
+### Runtime Architecture (Day 28)
+
+```text
+retrieval (shared): week_05 SQLite (chunks.text) -> lexical TF-IDF retrieval -> ranked chunks
+
+LOCAL  : ranked chunks -> grounded prompt -> local Ollama generation (qwen2.5-coder:7b)   [offline]
+CLOUD  : ranked chunks -> grounded prompt -> cloud generation (DeepSeek/GPT)              [gen key]
+
+optional (--cloud-retrieval vector):
+CLOUD  : query -> OpenAI text-embedding-3-small -> cosine vs stored embedding_json -> chunks
+         -> grounded prompt -> cloud generation                                  [OPENAI_API_KEY]
+```
+
+What is reused from the Week 5 index:
+
+- `index_runs` metadata (pick latest run; read the indexed embedding model);
+- `chunks.text` + metadata → lexical retrieval (both pipelines by default);
+- `chunks.embedding_json` (old cloud vectors) → only in optional `--cloud-retrieval vector`.
+
+Cloud requirements:
+
+- default (lexical): a cloud generation key (e.g. `DEEPSEEK_API_KEY`) — no OpenAI needed;
+- `--cloud-retrieval vector`: additionally `OPENAI_API_KEY` (to embed the query in the indexed
+  space).
+
+If the needed keys are missing, the cloud side is skipped with a clear reason and the local flow
+still fully satisfies Day 28.
+
+### Run Day 28
+
+```bash
+# local pipeline: lexical retrieval + local generation
+uv run python -m week_06.local_rag ask --question "Из каких шагов состоит базовый pipeline RAG?"
+
+# compare local vs cloud generation on the SAME lexical context (default)
+uv run python -m week_06.local_rag compare --question "Что такое cosine similarity?"
+
+# optional: full cloud stack (cloud vector retrieval + cloud generation)
+uv run python -m week_06.local_rag compare --question "Что такое cosine similarity?" --cloud-retrieval vector
+
+# mini evaluation with symmetric local/cloud metrics (quality/speed/stability)
+uv run python -m week_06.local_rag eval --limit 3
+```
+
+Interactive ask mode:
+
+```bash
+uv run python -m week_06.local_rag ask
+```
+
+### What To Verify (Day 28)
+
+- Day 28 prints reused `run_id`, `strategy`, and the indexed `embedding_model` from Week 5 DB;
+- local pipeline: lexical retrieved chunks (`source`, `section`, `chunk_id`, score) + local
+  Ollama answer, generated with no network;
+- cloud pipeline (if a generation key is present): the **same** lexical context + cloud answer;
+  `compare` prints both under `== LOCAL ==` / `== CLOUD ==` headers, with identical
+  `retrieval_latency_s` (retrieval is shared);
+- `eval` writes JSON report to `week_06/eval/day28_results.json` with **symmetric** `local` and
+  `cloud` metric blocks (per-question and aggregated), plus `cloud_retrieval_mode`;
+- if no cloud generation key is set, the cloud side is skipped and the local flow still succeeds.
+
+### Demo Flow (Day 28)
+
+1. Show that local model is available (`ollama list`).
+2. Run `uv run python -m week_06.local_rag ask --question "..."` — lexical retrieval + local answer.
+3. Show retrieved chunks + local answer + latencies (retrieval ~0.03s, generation dominates).
+4. Run `compare` once: `== LOCAL ==` (Qwen) vs `== CLOUD ==` (DeepSeek) on the **same** lexical
+   context. Point out `retrieval_latency_s` is identical — only the generator changed.
+5. Run `eval --limit 3` and show the two symmetric summaries (`[LOCAL]` vs `[CLOUD]`) + report path:
+   local is private/offline but slow on CPU; cloud is far faster, quality is close.
+6. (Optional) Re-run `compare ... --cloud-retrieval vector` to show the full cloud stack reusing the
+   old OpenAI vectors.
+
 ## Troubleshooting (bash + Ollama)
 
 - `model not found`:
@@ -286,6 +406,16 @@ sqlalchemy.exc.OperationalError: connection refused on localhost:5432
   - use `--provider "Qwen2.5 Coder 3B (Ollama, local)"`.
 - Python import error:
   - run from repo root with `uv run python -m week_06.main`.
+- Day 28 DB not found:
+  - build Week 5 index first:
+    `uv run python -m week_05.main compare --source "week_05/corpus"`.
+- Day 28 no lexical hits:
+  - ask a more specific question with terms likely present in the indexed corpus.
+- Day 28 cloud side skipped:
+  - `no cloud API key for generation` — set a cloud generation key (e.g. `DEEPSEEK_API_KEY`);
+  - with `--cloud-retrieval vector`: also needs `OPENAI_API_KEY` to embed the query in the indexed
+    vector space (message: `OPENAI_API_KEY missing ...`);
+  - either way the local flow still fully satisfies Day 28.
 
 ## Demo Flow (short)
 
@@ -306,3 +436,4 @@ sqlalchemy.exc.OperationalError: connection refused on localhost:5432
 |-----|------|----------|------|--------|-------|
 | 26 | Launch local LLM through Ollama, prove CLI/API access, run 3 manual prompts of different complexity | `ollama run qwen2.5-coder:7b`, `curl /v1/models`, `-m week_06.main --prompt "..."` | `main.py`, `local_client.py`, `shared/config.py`, `shared/client.py`, `README.md` | done | _link_ |
 | 27 | Integrate local LLM into a real local app (Flask web UI + prompt modes + request history) | `uv run python -m week_06.web_app` | `web_app.py`, `workbench.py`, `templates/workbench.html`, `local_client.py`, `README.md` | done | _link_ |
+| 28 | Reuse Week 5 SQLite index for RAG with local lexical retrieval; compare local vs cloud generation on the same context (symmetric metrics); optional full cloud stack via `--cloud-retrieval vector` | `uv run python -m week_06.local_rag ask`, `compare`, `eval` | `local_rag.py`, `README.md`, `week_06/eval/day28_results.json` | done | _link_ |
