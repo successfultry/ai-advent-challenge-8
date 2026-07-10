@@ -420,32 +420,36 @@ generation step. So the diff is purely prompt + sampling params, not the retriev
 | `num_ctx` | not set (default 4096) | not set (default 4096) | **intentionally equal** — changing it forces an Ollama model reload that dominates CPU wall-clock and hides the real effect |
 | Model / quant | `qwen2.5-coder:7b` (Q4_K_M) | same | optional 3rd arm via `--quant-model` (see below) |
 
-### Measured result (this machine: CPU-only, `repeats=1`)
+### How to read the result
 
-| metric | baseline | optimized | read |
-|-----|------|----------|------|
-| `avg_keyword_recall` | 0.625 | **0.750** | answers cover more expected terms |
-| `source_hit_rate` | 1.00 | 1.00 | correct source retrieved (same retrieval) |
-| `avg_answer_chars` | 546 | **411** | more concise |
-| `sources_format_rate` | 1.00 | 0.50 | 7B dropped the `Sources:` line on one question |
-| decode `tokens_per_sec` | 2.9 | 2.9 | pure decode speed unchanged (same model) |
-| `avg_total_latency_s` | 58.6 | 235.8 | **slower wall-clock, see caveat** |
+The report is intentionally symmetric: each question has `baseline` and `optimized` blocks, and the
+summary aggregates the same fields for both. Use it as an A/B table:
 
-**Honest read:** the optimized prompt/params improved answer relevance (recall 0.625 → 0.75) and
-made answers shorter and Russian-only — a real quality win. It did **not** improve wall-clock on
-this hardware, and format regressed on one question. This is a valid Day 29 result: you tune, you
-measure, you report the trade-off.
+| metric | What it says |
+|-----|------|
+| `avg_keyword_recall` | whether the answer contains expected concepts from `week_05/eval/questions.json` |
+| `source_hit_rate` | whether retrieval found an expected source file |
+| `sources_format_rate` | whether the answer ended with a valid `Sources: [...]` line |
+| `avg_answer_chars` | whether the optimized answer is shorter / more focused |
+| `avg_tokens_per_sec` | pure decode speed from Ollama (`eval_count / eval_duration`) |
+| `avg_total_latency_s` | full wall-clock latency, including prompt-eval/prefill |
+
+**Honest read rule:** if recall/format improve but wall-clock does not, report it as a trade-off, not
+as a fake speed win. Day 29 is about tuning and measuring, not forcing every knob to win.
 
 ### Why "optimized" is not faster here (CPU caveat)
 
-`tokens_per_sec` (from Ollama `eval_duration`) measures only **decode**, and it is identical (~2.9).
-But wall-clock for the optimized arm is ~190s higher per question. That gap is **prompt-eval
-(prefill)**: on a CPU-only box, processing the ~1500-token retrieved context is slow, and it is only
-"free" when the exact prompt prefix is already in Ollama's KV cache. The warmup call primes the
-baseline prompt, so baseline gets a cache hit and cheap prefill; the optimized prompt differs, so it
-pays full prefill every time. On a GPU (or with prompt-prefix caching) this gap collapses. The
-takeaway: on CPU the dominant cost is prefill + decode of a 7B, which parameter tuning cannot fix —
-the real speed levers are a smaller model (`qwen2.5-coder:3b`), a lighter quant, or GPU offload.
+`tokens_per_sec` (from Ollama `eval_duration`) measures only **decode**. It does not include
+prompt-eval/prefill: the model first has to process the retrieved chunks before generating the first
+answer token. On a CPU-only box, prefill over a few thousand prompt tokens can dominate wall-clock.
+
+The optimizer uses a **neutral warmup** (`"warmup"`, `num_predict=8`) before the measured arms. This
+loads the model without warming either the baseline RAG prompt or the optimized RAG prompt. That
+makes the comparison fairer: no arm gets a baseline-specific KV-cache advantage.
+
+The takeaway: on CPU the dominant cost is prefill + decode of a 7B, which parameter tuning cannot
+fully fix. The real speed levers are a smaller model (`qwen2.5-coder:3b`), a lighter quant, or GPU
+offload.
 
 ### Quantization (optional 3rd arm)
 
@@ -503,8 +507,8 @@ line (accepts both `[C1], [C3]` and `[C1, C3]`, and `Sources: []`).
   stable run to run;
 - `num_ctx` is deliberately not changed between arms — changing it triggers a model reload that
   dominates CPU wall-clock;
-- `optimize` does one cheap warmup call (`num_predict=8`) before timed runs to load the model
-  without wasting a full generation;
+- `optimize` does one neutral warmup call (`"warmup"`, `num_predict=8`) before timed runs to load the
+  model without warming either RAG prompt;
 - wall-clock on CPU is dominated by prompt-eval/decode of the 7B and is noisy at `repeats=1`; use
   `--repeats 3` (median) or a smaller model for steadier numbers.
 

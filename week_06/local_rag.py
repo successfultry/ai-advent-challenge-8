@@ -1151,24 +1151,12 @@ def _optimize_pair(
     return baseline_turn, optimized_turn
 
 
-def _optimize_warmup(
-    db_path: Path,
-    question: str,
-    strategy: str | None,
-    provider: str,
-    *,
-    model_override: str | None = None,
-) -> None:
+def _optimize_warmup(provider: str, *, model_override: str | None = None) -> None:
     try:
-        run_local_rag(
-            db_path=db_path,
-            question=question or "warmup",
-            top_k=BASELINE_TOP_K,
-            strategy=strategy,
-            provider_name=provider,
-            prompt_template=BASELINE_PROMPT,
-            generation_settings=GenerationSettings(max_tokens=WARMUP_MAX_TOKENS),
-            model_override=model_override,
+        OllamaClient(provider_name=provider, model_override=model_override).generate(
+            "warmup",
+            temperature=0.0,
+            max_tokens=WARMUP_MAX_TOKENS,
         )
     except Exception:
         pass
@@ -1251,7 +1239,7 @@ def _run_optimize(args: argparse.Namespace) -> int:
     db_path = Path(args.db)
 
     if args.interactive:
-        _optimize_warmup(db_path, "warmup", args.strategy, provider)
+        _optimize_warmup(provider)
         print(
             "Interactive optimize mode (baseline vs optimized). "
             "Type a question; empty line or 'exit'/'quit' to stop."
@@ -1276,7 +1264,7 @@ def _run_optimize(args: argparse.Namespace) -> int:
 
     if args.question is not None and str(args.question).strip():
         question = str(args.question).strip()
-        _optimize_warmup(db_path, question, args.strategy, provider)
+        _optimize_warmup(provider)
         baseline_turn, optimized_turn = _optimize_pair(db_path, question, args.strategy, provider)
         _print_optimize_pair(baseline_turn, optimized_turn)
         return 0
@@ -1290,8 +1278,7 @@ def _run_optimize(args: argparse.Namespace) -> int:
         questions = questions[: args.limit]
 
     if questions:
-        warmup_question = str(questions[0].get("question", "")).strip() or "warmup"
-        _optimize_warmup(db_path, warmup_question, args.strategy, provider)
+        _optimize_warmup(provider)
 
     quant_model = args.quant_model
     quant_available = False
