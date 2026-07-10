@@ -1,0 +1,189 @@
+{
+  "mode": "day29_local_optimization",
+  "db": "data/week_05/rag_index.sqlite",
+  "dataset": "week_05/eval/questions.json",
+  "strategy_filter": null,
+  "local_provider": "Qwen2.5 Coder 7B (Ollama, local)",
+  "baseline_config": {
+    "prompt_template": "BASELINE_PROMPT",
+    "top_k": 5,
+    "temperature": null,
+    "top_p": null,
+    "max_tokens": null
+  },
+  "optimized_config": {
+    "prompt_template": "OPTIMIZED_PROMPT",
+    "top_k": 5,
+    "temperature": 0.2,
+    "top_p": 0.9,
+    "max_tokens": 160
+  },
+  "quant_config": null,
+  "summary": {
+    "questions_requested": 2,
+    "questions_processed": 2,
+    "success_count": 2,
+    "failure_count": 0,
+    "repeats_per_arm": 1,
+    "baseline": {
+      "count": 2,
+      "avg_keyword_recall": 0.625,
+      "source_hit_rate": 1.0,
+      "avg_retrieved_count": 5.0,
+      "avg_retrieval_latency_s": 0.06888679997064173,
+      "avg_generation_latency_s": 87.72316825017333,
+      "avg_total_latency_s": 87.79205505014397,
+      "avg_answer_chars": 258.0,
+      "avg_tokens_per_sec": 5.158022841317866,
+      "avg_load_seconds": 0.4941581,
+      "sources_format_rate": 0.5,
+      "fallback_count": 0
+    },
+    "optimized": {
+      "count": 2,
+      "avg_keyword_recall": 0.75,
+      "source_hit_rate": 1.0,
+      "avg_retrieved_count": 5.0,
+      "avg_retrieval_latency_s": 0.07502895034849644,
+      "avg_generation_latency_s": 100.2968411501497,
+      "avg_total_latency_s": 100.3718701004982,
+      "avg_answer_chars": 414.5,
+      "avg_tokens_per_sec": 4.048752761404767,
+      "avg_load_seconds": 0.22026005,
+      "sources_format_rate": 0.0,
+      "fallback_count": 0
+    }
+  },
+  "results": [
+    {
+      "id": "q01",
+      "question": "Чем max_tokens отличается от context window согласно материалам?",
+      "expected": [
+        "max_tokens",
+        "context",
+        "output",
+        "длину"
+      ],
+      "expected_sources": [
+        "lecture-01-notes.md"
+      ],
+      "baseline": {
+        "retrieval": "lexical (baseline, top_k=5)",
+        "generation_provider": "Qwen2.5 Coder 7B (Ollama, local)",
+        "model": "qwen2.5-coder:7b",
+        "finish_reason": "stop",
+        "retrieved_count": 5,
+        "keyword_recall": 0.5,
+        "source_hit": true,
+        "retrieval_latency_s": 0.03768440010026097,
+        "generation_latency_s": 12.491769700311124,
+        "total_latency_s": 12.529454100411385,
+        "answer_text": "`max_tokens` и `context window` различаются следующим образом: `max_tokens` задает лимит длины вывода модели, в то время как `context window` определяет размер контекста, который модель может использовать для генерации ответов.",
+        "answer_chars": 227,
+        "sources_format_ok": false,
+        "used_source_labels": [],
+        "used_sources": [],
+        "fallback_reason": null,
+        "tokens_out": 62,
+        "tokens_per_sec": 6.2039699203520335,
+        "load_seconds": 0.2335769,
+        "repeats": 1
+      },
+      "optimized": {
+        "retrieval": "lexical (optimized, top_k=5)",
+        "generation_provider": "Qwen2.5 Coder 7B (Ollama, local)",
+        "model": "qwen2.5-coder:7b",
+        "finish_reason": "stop",
+        "retrieved_count": 5,
+        "keyword_recall": 0.75,
+        "source_hit": true,
+        "retrieval_latency_s": 0.0774803003296256,
+        "generation_latency_s": 34.55840020021424,
+        "total_latency_s": 34.63588050054386,
+        "answer_text": "`max_tokens` и `context window` различаются следующим образом:\n\n- **max_tokens** — это максимальное количество токенов в одном ответе модели. Это ограничивает длину генерируемого текста.\n  \n- **Context window** — это максимальное количество токенов, которое модель может использовать для анализа и понимания входного контекста.\n\nТаким образом, `max_tokens` контролирует длину ответа, в то время как `context window` определяет объем информации, на основе которой модель формирует ответ.",
+        "answer_chars": 486,
+        "sources_format_ok": false,
+        "used_source_labels": [],
+        "used_sources": [],
+        "fallback_reason": null,
+        "tokens_out": 126,
+        "tokens_per_sec": 3.944431598954237,
+        "load_seconds": 0.2895438,
+        "repeats": 1
+      }
+    },
+    {
+      "id": "q02",
+      "question": "Что такое top_p (nucleus sampling) и когда его уменьшать?",
+      "expected": [
+        "top_p",
+        "nucleus",
+        "вероятность",
+        "предсказуемый"
+      ],
+      "expected_sources": [
+        "lecture-01-notes.md"
+      ],
+      "baseline": {
+        "retrieval": "lexical (baseline, top_k=5)",
+        "generation_provider": "Qwen2.5 Coder 7B (Ollama, local)",
+        "model": "qwen2.5-coder:7b",
+        "finish_reason": "stop",
+        "retrieved_count": 5,
+        "keyword_recall": 0.75,
+        "source_hit": true,
+        "retrieval_latency_s": 0.10008919984102249,
+        "generation_latency_s": 162.95456680003554,
+        "total_latency_s": 163.05465599987656,
+        "answer_text": "Top-P (nucleus sampling) — это техника выбора токена, которая включает в себя минимальный набор самых вероятных токенов с суммарной вероятностью p. Когда вам нужно получить более предсказуемый ответ и уменьшить разнообразие вариантов, следует уменьшать значение top-P.\n\nSources: [C1], [C3]",
+        "answer_chars": 289,
+        "sources_format_ok": true,
+        "used_source_labels": [
+          "C1",
+          "C3"
+        ],
+        "used_sources": [
+          {
+            "label": "C1",
+            "source": "week_05/corpus/AI_Advent_Week1_Day1_AI_Prompting_Notes_FIXED.pdf",
+            "section": "paragraph",
+            "chunk_id": "497c702ebe06e764"
+          },
+          {
+            "label": "C3",
+            "source": "week_05/corpus/AI_Advent_Week1_Day1_AI_Prompting_Notes_FIXED.pdf",
+            "section": "paragraph",
+            "chunk_id": "3181d0bcc4fdbf5d"
+          }
+        ],
+        "fallback_reason": null,
+        "tokens_out": 94,
+        "tokens_per_sec": 4.112075762283699,
+        "load_seconds": 0.7547393,
+        "repeats": 1
+      },
+      "optimized": {
+        "retrieval": "lexical (optimized, top_k=5)",
+        "generation_provider": "Qwen2.5 Coder 7B (Ollama, local)",
+        "model": "qwen2.5-coder:7b",
+        "finish_reason": "stop",
+        "retrieved_count": 5,
+        "keyword_recall": 0.75,
+        "source_hit": true,
+        "retrieval_latency_s": 0.07257760036736727,
+        "generation_latency_s": 166.03528210008517,
+        "total_latency_s": 166.10785970045254,
+        "answer_text": "Top-P (nucleus sampling) — это техника выбора токена, которая оставляет минимальный набор самых вероятных токенов с суммарной вероятностью p. Она используется для получения более предсказуемого ответа или шире вариантов генерации.\n\nУменьшать top-P нужно, когда требуется:\n- Меньше вариантов генерации.\n- Более стабильный и предсказуемый ответ.",
+        "answer_chars": 343,
+        "sources_format_ok": false,
+        "used_source_labels": [],
+        "used_sources": [],
+        "fallback_reason": null,
+        "tokens_out": 111,
+        "tokens_per_sec": 4.153073923855297,
+        "load_seconds": 0.1509763,
+        "repeats": 1
+      }
+    }
+  ]
+}
