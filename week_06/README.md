@@ -473,7 +473,8 @@ with `ollama ps` (SIZE + `PROCESSOR` = CPU/GPU split).
 uv run python -m week_06.local_rag optimize --limit 2
 
 # single question, printed side by side (fast, no report) — good for live demo
-uv run python -m week_06.local_rag optimize --question "Что такое top_p и когда его уменьшать?"
+uv run python -m week_06.local_rag optimize --question "Чем max_tokens отличается от context window согласно материалам?"
+
 
 # interactive baseline-vs-optimized loop
 uv run python -m week_06.local_rag optimize --interactive
