@@ -396,6 +396,118 @@ uv run python -m week_06.local_rag ask
 6. (Optional) Re-run `compare ... --cloud-retrieval vector` to show the full cloud stack reusing the
    old OpenAI vectors.
 
+## Day 29 — Optimize Local LLM (Path A)
+
+### Goal
+
+Optimize the local generation step of the same RAG Q&A flow (Week 5 lexical retrieval + local
+Qwen2.5-Coder-7B) for a concrete use case (Russian technical course notes), then compare
+**before vs after** on quality, speed, and format stability.
+
+### What the `optimize` command analyzes
+
+It runs the **same** dataset question twice per row, on the **same** Ollama model
+(`qwen2.5-coder:7b`, Q4_K_M) with **identical lexical retrieval** (`top_k=5`), changing only the
+generation step. So the diff is purely prompt + sampling params, not the retrieved context.
+
+| Knob | Baseline (before) | Optimized (after) | Why |
+|-----|------|----------|------|
+| Prompt template | `BASELINE_PROMPT` (generic, English wording) | `OPTIMIZED_PROMPT` (Russian, 3-5 concise sentences, strict `Sources:` last line, explicit insufficient-context rule) | fixes language drift + citation format for this use case |
+| `temperature` | Ollama default (~0.8) | `0.2` | less randomness, more deterministic/stable answers |
+| `top_p` | default (~0.9) | `0.9` (explicit) | keeps the sensible nucleus, removes long tail |
+| `max_tokens` (`num_predict`) | unset (unbounded) | `160` | caps runaway output; shorter answers |
+| Retrieval `top_k` | `5` | `5` (held equal) | isolate the generation change, don't drop sources |
+| `num_ctx` | not set (default 4096) | not set (default 4096) | **intentionally equal** — changing it forces an Ollama model reload that dominates CPU wall-clock and hides the real effect |
+| Model / quant | `qwen2.5-coder:7b` (Q4_K_M) | same | optional 3rd arm via `--quant-model` (see below) |
+
+### Measured result (this machine: CPU-only, `repeats=1`)
+
+| metric | baseline | optimized | read |
+|-----|------|----------|------|
+| `avg_keyword_recall` | 0.625 | **0.750** | answers cover more expected terms |
+| `source_hit_rate` | 1.00 | 1.00 | correct source retrieved (same retrieval) |
+| `avg_answer_chars` | 546 | **411** | more concise |
+| `sources_format_rate` | 1.00 | 0.50 | 7B dropped the `Sources:` line on one question |
+| decode `tokens_per_sec` | 2.9 | 2.9 | pure decode speed unchanged (same model) |
+| `avg_total_latency_s` | 58.6 | 235.8 | **slower wall-clock, see caveat** |
+
+**Honest read:** the optimized prompt/params improved answer relevance (recall 0.625 → 0.75) and
+made answers shorter and Russian-only — a real quality win. It did **not** improve wall-clock on
+this hardware, and format regressed on one question. This is a valid Day 29 result: you tune, you
+measure, you report the trade-off.
+
+### Why "optimized" is not faster here (CPU caveat)
+
+`tokens_per_sec` (from Ollama `eval_duration`) measures only **decode**, and it is identical (~2.9).
+But wall-clock for the optimized arm is ~190s higher per question. That gap is **prompt-eval
+(prefill)**: on a CPU-only box, processing the ~1500-token retrieved context is slow, and it is only
+"free" when the exact prompt prefix is already in Ollama's KV cache. The warmup call primes the
+baseline prompt, so baseline gets a cache hit and cheap prefill; the optimized prompt differs, so it
+pays full prefill every time. On a GPU (or with prompt-prefix caching) this gap collapses. The
+takeaway: on CPU the dominant cost is prefill + decode of a 7B, which parameter tuning cannot fix —
+the real speed levers are a smaller model (`qwen2.5-coder:3b`), a lighter quant, or GPU offload.
+
+### Quantization (optional 3rd arm)
+
+`qwen2.5-coder:7b` ships pre-quantized (Q4_K_M). "Trying quantization" = compare it against a lighter
+quant. Pull it once, then pass `--quant-model`:
+
+```bash
+ollama pull qwen2.5-coder:7b-instruct-q3_K_M
+uv run python -m week_06.local_rag optimize --limit 2 \
+  --quant-model qwen2.5-coder:7b-instruct-q3_K_M
+```
+
+Q3_K_M is ~3.8 GB vs ~4.7 GB for Q4_K_M (less RAM, slightly lower quality). If the tag is not pulled,
+the quant arm is skipped with a clear message and the run continues. Show resource usage in the demo
+with `ollama ps` (SIZE + `PROCESSOR` = CPU/GPU split).
+
+### Run Day 29
+
+```bash
+# default: baseline vs optimized on Q4 (no quant arm), writes JSON report
+uv run python -m week_06.local_rag optimize --limit 2
+
+# single question, printed side by side (fast, no report) — good for live demo
+uv run python -m week_06.local_rag optimize --question "Что такое top_p и когда его уменьшать?"
+
+# interactive baseline-vs-optimized loop
+uv run python -m week_06.local_rag optimize --interactive
+
+# median over N repeats per arm (reduces single-shot noise)
+uv run python -m week_06.local_rag optimize --limit 2 --repeats 3
+```
+
+Report path:
+
+```text
+week_06/eval/day29_optimization_results.json
+```
+
+### Metrics in the report
+
+Each arm (`baseline`, `optimized`, optional `quant`) has a symmetric block:
+
+- quality: `avg_keyword_recall`, `source_hit_rate`, `sources_format_rate`, `fallback_count`
+- speed: `avg_retrieval_latency_s`, `avg_generation_latency_s`, `avg_total_latency_s`,
+  `avg_tokens_per_sec` (decode), `avg_load_seconds`
+- shape: `avg_answer_chars`
+
+`sources_format_rate` = fraction of answers whose last non-empty line is a valid `Sources: [...]`
+line (accepts both `[C1], [C3]` and `[C1, C3]`, and `Sources: []`).
+
+### Notes
+
+- retrieval is held constant (`top_k=5`) so the comparison isolates the generation change;
+- baseline uses Ollama default sampling (non-deterministic); optimized (`temperature=0.2`) is more
+  stable run to run;
+- `num_ctx` is deliberately not changed between arms — changing it triggers a model reload that
+  dominates CPU wall-clock;
+- `optimize` does one cheap warmup call (`num_predict=8`) before timed runs to load the model
+  without wasting a full generation;
+- wall-clock on CPU is dominated by prompt-eval/decode of the 7B and is noisy at `repeats=1`; use
+  `--repeats 3` (median) or a smaller model for steadier numbers.
+
 ## Troubleshooting (bash + Ollama)
 
 - `model not found`:
@@ -437,3 +549,4 @@ uv run python -m week_06.local_rag ask
 | 26 | Launch local LLM through Ollama, prove CLI/API access, run 3 manual prompts of different complexity | `ollama run qwen2.5-coder:7b`, `curl /v1/models`, `-m week_06.main --prompt "..."` | `main.py`, `local_client.py`, `shared/config.py`, `shared/client.py`, `README.md` | done | _link_ |
 | 27 | Integrate local LLM into a real local app (Flask web UI + prompt modes + request history) | `uv run python -m week_06.web_app` | `web_app.py`, `workbench.py`, `templates/workbench.html`, `local_client.py`, `README.md` | done | _link_ |
 | 28 | Reuse Week 5 SQLite index for RAG with local lexical retrieval; compare local vs cloud generation on the same context (symmetric metrics); optional full cloud stack via `--cloud-retrieval vector` | `uv run python -m week_06.local_rag ask`, `compare`, `eval` | `local_rag.py`, `README.md`, `week_06/eval/day28_results.json` | done | _link_ |
+| 29 | Optimize local LLM generation for the RAG Q&A use case: baseline vs optimized prompt + sampling params (temperature/top_p/max_tokens) on identical retrieval, native Ollama `/api/chat` with tokens/sec + load metrics, optional `--quant-model` arm | `uv run python -m week_06.local_rag optimize --limit 2` | `local_rag.py`, `local_client.py`, `README.md`, `week_06/eval/day29_optimization_results.json` | done | _link_ |

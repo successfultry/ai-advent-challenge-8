@@ -18,10 +18,42 @@ from week_06.local_client import OllamaClient, OllamaClientError
 DEFAULT_DB = Path("data/week_05/rag_index.sqlite")
 DEFAULT_DATASET = Path("week_05/eval/questions.json")
 DEFAULT_EVAL_OUTPUT = Path("week_06/eval/day28_results.json")
+DEFAULT_DAY29_OUTPUT = Path("week_06/eval/day29_optimization_results.json")
 DEFAULT_TOP_K = 5
 DEFAULT_MAX_CHARS_PER_CHUNK = 900
 DEFAULT_MAX_TOTAL_CONTEXT_CHARS = 7000
 INSUFFICIENT_CONTEXT = "The provided context is insufficient."
+# Retrieval is held constant (top_k=5) so baseline vs optimized isolates the
+# generation change (prompt + sampling params), not the retrieved context.
+BASELINE_TOP_K = 5
+OPTIMIZED_TOP_K = 5
+OPTIMIZED_TEMPERATURE = 0.2
+OPTIMIZED_TOP_P = 0.9
+OPTIMIZED_MAX_TOKENS = 160
+OPTIMIZE_REPEATS_DEFAULT = 1
+WARMUP_MAX_TOKENS = 8
+QUANT_COMPARISON_MODEL = "qwen2.5-coder:7b-instruct-q3_K_M"
+
+BASELINE_PROMPT = (
+    "You are a strict RAG assistant.\n"
+    "Answer using ONLY the provided context.\n"
+    f"If context is insufficient, reply exactly: '{INSUFFICIENT_CONTEXT}'.\n"
+    "End your answer with a line in this format: Sources: [C1], [C3]\n\n"
+    "Question: {question}\n\n"
+    "Context:\n{context}"
+)
+
+OPTIMIZED_PROMPT = (
+    "You are a strict RAG assistant for technical course notes.\n"
+    "Rules:\n"
+    "1) Answer in Russian, in 3-5 concise sentences. Keep standard technical terms in English.\n"
+    "2) Use ONLY the provided context. If it is insufficient, answer exactly: "
+    f"'{INSUFFICIENT_CONTEXT}'\n"
+    "3) The LAST line of your answer MUST be exactly: Sources: [C1], [C3] "
+    "(list every chunk label you actually used, or Sources: [] if none).\n\n"
+    "Question: {question}\n\n"
+    "Context:\n{context}"
+)
 
 
 @dataclass(frozen=True)
@@ -63,6 +95,10 @@ class GeneratedAnswer:
     finish_reason: str
     used_labels: list[str]
     fallback_reason: str | None = None
+    tokens_out: int | None = None
+    prompt_tokens: int | None = None
+    tokens_per_sec: float | None = None
+    load_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -72,6 +108,14 @@ class RagTurn:
     generation_latency_s: float
     retrieved: list[RetrievedChunk]
     answer: GeneratedAnswer
+
+
+@dataclass(frozen=True)
+class GenerationSettings:
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
+    context_window: int | None = None
 
 
 def _normalize_text(text: str) -> str:
@@ -206,9 +250,7 @@ def _lexical_retrieve(question: str, chunks: list[ChunkRow], top_k: int) -> list
                 doc_freq[term] += 1
 
     total_docs = max(1, len(chunks))
-    idf = {
-        term: math.log((total_docs + 1) / (doc_freq.get(term, 0) + 1)) + 1.0 for term in terms
-    }
+    idf = {term: math.log((total_docs + 1) / (doc_freq.get(term, 0) + 1)) + 1.0 for term in terms}
 
     scored: list[tuple[float, ChunkRow]] = []
     for chunk, chunk_tf in indexed:
@@ -257,22 +299,35 @@ def _build_context(chunks: list[RetrievedChunk]) -> str:
     return "\n\n".join(parts)
 
 
-def _build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
+def _build_prompt(
+    question: str,
+    chunks: list[RetrievedChunk],
+    *,
+    prompt_template: str = OPTIMIZED_PROMPT,
+) -> str:
     context = _build_context(chunks)
-    return (
-        "You are a strict RAG assistant.\n"
-        "Answer using ONLY the provided context.\n"
-        "If context is insufficient, reply exactly: "
-        f"'{INSUFFICIENT_CONTEXT}'.\n"
-        "End your answer with a line in this format: Sources: [C1], [C3]\n\n"
-        f"Question: {question.strip()}\n\n"
-        f"Context:\n{context if context else '(empty)'}"
+    return prompt_template.format(
+        question=question.strip(),
+        context=context if context else "(empty)",
     )
 
 
-def _generate_local(provider_name: str, prompt: str, labels_count: int) -> GeneratedAnswer:
-    client = OllamaClient(provider_name=provider_name)
-    response = client.generate(prompt)
+def _generate_local(
+    provider_name: str,
+    prompt: str,
+    labels_count: int,
+    *,
+    settings: GenerationSettings | None = None,
+    model_override: str | None = None,
+) -> GeneratedAnswer:
+    client = OllamaClient(provider_name=provider_name, model_override=model_override)
+    response = client.generate(
+        prompt,
+        temperature=settings.temperature if settings else None,
+        top_p=settings.top_p if settings else None,
+        max_tokens=settings.max_tokens if settings else None,
+        context_window=settings.context_window if settings else None,
+    )
     used = _extract_used_labels(response.text, labels_count)
     return GeneratedAnswer(
         provider=provider_name,
@@ -282,6 +337,10 @@ def _generate_local(provider_name: str, prompt: str, labels_count: int) -> Gener
         finish_reason=response.finish_reason,
         used_labels=used,
         fallback_reason=None,
+        tokens_out=response.tokens_out,
+        prompt_tokens=response.prompt_tokens,
+        tokens_per_sec=response.tokens_per_sec,
+        load_seconds=response.load_seconds,
     )
 
 
@@ -320,6 +379,9 @@ def run_local_rag(
     top_k: int,
     strategy: str | None,
     provider_name: str,
+    prompt_template: str = OPTIMIZED_PROMPT,
+    generation_settings: GenerationSettings | None = None,
+    model_override: str | None = None,
 ) -> RagTurn:
     run = _pick_run(db_path, strategy)
     chunks = _load_chunks(db_path, run.id)
@@ -332,9 +394,15 @@ def run_local_rag(
         answer = _fallback_answer(provider_name, "no_lexical_hits")
         generation_latency = 0.0
     else:
-        prompt = _build_prompt(question, retrieved)
+        prompt = _build_prompt(question, retrieved, prompt_template=prompt_template)
         try:
-            answer = _generate_local(provider_name, prompt, len(retrieved))
+            answer = _generate_local(
+                provider_name,
+                prompt,
+                len(retrieved),
+                settings=generation_settings,
+                model_override=model_override,
+            )
         except OllamaClientError as exc:
             raise RuntimeError(str(exc)) from exc
         generation_latency = answer.latency_s
@@ -568,8 +636,7 @@ def _print_answer(title: str, turn: RagTurn, retrieval_label: str) -> None:
     answer = turn.answer
     total = turn.retrieval_latency_s + turn.generation_latency_s
     print(
-        f"\n[{title}] retrieval={retrieval_label} "
-        f"generation={answer.provider} model={answer.model}"
+        f"\n[{title}] retrieval={retrieval_label} generation={answer.provider} model={answer.model}"
     )
     print(
         f"retrieval_latency_s={turn.retrieval_latency_s:.2f} "
@@ -577,6 +644,11 @@ def _print_answer(title: str, turn: RagTurn, retrieval_label: str) -> None:
         f"total_latency_s={total:.2f} "
         f"finish_reason={answer.finish_reason}"
     )
+    if answer.tokens_per_sec is not None:
+        print(
+            f"tokens_out={answer.tokens_out} tokens_per_sec={answer.tokens_per_sec:.1f} "
+            f"load_seconds={answer.load_seconds or 0.0:.2f}"
+        )
     if answer.fallback_reason:
         print(f"fallback_reason={answer.fallback_reason}")
     if answer.used_labels:
@@ -598,6 +670,15 @@ def _source_hit(expected_sources: list[str], chunks: list[RetrievedChunk]) -> bo
         return False
     names = {Path(chunk.source).name for chunk in chunks}
     return any(Path(item).name in names for item in expected_sources)
+
+
+def _sources_format_ok(answer_text: str) -> bool:
+    lines = [line.strip() for line in answer_text.splitlines() if line.strip()]
+    if not lines:
+        return False
+    # accept both "[C1], [C3]" and "[C1, C3]" styles emitted by the model
+    normalized = lines[-1].replace("], [", ", ").replace("],[", ", ")
+    return bool(re.fullmatch(r"Sources:\s*\[(?:C\d+(?:,\s*C\d+)*)?\]", normalized))
 
 
 def _read_questions(path: Path) -> list[dict]:
@@ -636,9 +717,14 @@ def _turn_block(
         "generation_latency_s": turn.generation_latency_s,
         "total_latency_s": turn.retrieval_latency_s + turn.generation_latency_s,
         "answer_text": turn.answer.text,
+        "answer_chars": len(turn.answer.text),
+        "sources_format_ok": _sources_format_ok(turn.answer.text),
         "used_source_labels": turn.answer.used_labels,
         "used_sources": used_sources,
         "fallback_reason": turn.answer.fallback_reason,
+        "tokens_out": turn.answer.tokens_out,
+        "tokens_per_sec": turn.answer.tokens_per_sec,
+        "load_seconds": turn.answer.load_seconds,
     }
 
 
@@ -646,6 +732,13 @@ def _avg(blocks: list[dict], key: str) -> float:
     if not blocks:
         return 0.0
     return sum(block.get(key, 0.0) for block in blocks) / len(blocks)
+
+
+def _avg_skip_none(blocks: list[dict], key: str) -> float | None:
+    values = [block[key] for block in blocks if block.get(key) is not None]
+    if not values:
+        return None
+    return sum(values) / len(values)
 
 
 def _aggregate_blocks(blocks: list[dict]) -> dict:
@@ -659,6 +752,14 @@ def _aggregate_blocks(blocks: list[dict]) -> dict:
         "avg_retrieval_latency_s": _avg(blocks, "retrieval_latency_s"),
         "avg_generation_latency_s": _avg(blocks, "generation_latency_s"),
         "avg_total_latency_s": _avg(blocks, "total_latency_s"),
+        "avg_answer_chars": _avg(blocks, "answer_chars"),
+        "avg_tokens_per_sec": _avg_skip_none(blocks, "tokens_per_sec"),
+        "avg_load_seconds": _avg_skip_none(blocks, "load_seconds"),
+        "sources_format_rate": (
+            sum(1 for block in blocks if block.get("sources_format_ok")) / len(blocks)
+            if blocks
+            else 0.0
+        ),
         "fallback_count": sum(1 for block in blocks if block.get("fallback_reason")),
     }
 
@@ -714,6 +815,40 @@ def _parse_args() -> argparse.Namespace:
         default="lexical",
         help="lexical: cloud reuses the same local lexical context (default); "
         "vector: cloud does its own OpenAI vector retrieval",
+    )
+
+    p_opt = sub.add_parser(
+        "optimize",
+        help="Day 29: compare baseline vs optimized local generation settings",
+    )
+    p_opt.add_argument("--dataset", default=str(DEFAULT_DATASET))
+    p_opt.add_argument("--output", default=str(DEFAULT_DAY29_OUTPUT))
+    p_opt.add_argument("--strategy", choices=["fixed", "structure"], default=None)
+    p_opt.add_argument("--provider", default="Qwen2.5 Coder 7B (Ollama, local)")
+    p_opt.add_argument("--limit", type=int, default=None)
+    p_opt.add_argument(
+        "--question",
+        default=None,
+        help="One-shot baseline-vs-optimized on a single question (no JSON report)",
+    )
+    p_opt.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Interactive baseline-vs-optimized loop (no JSON report)",
+    )
+    p_opt.add_argument(
+        "--repeats",
+        type=int,
+        default=OPTIMIZE_REPEATS_DEFAULT,
+        help="Repeats per question per arm; latency/tokens_per_sec use the median "
+        "(default 1 = single shot, matches ask/compare speed)",
+    )
+    p_opt.add_argument(
+        "--quant-model",
+        default=None,
+        help=f"Also run a third arm on this Ollama model tag (e.g. {QUANT_COMPARISON_MODEL}) "
+        "using the optimized settings, to compare quantization variants. "
+        "Model must already be pulled (`ollama pull <tag>`); skipped otherwise.",
     )
     return parser.parse_args()
 
@@ -905,9 +1040,7 @@ def _run_eval(args: argparse.Namespace) -> int:
 
     ok_results = [r for r in results if "error" not in r]
     local_blocks = [r["local"] for r in ok_results if r.get("local")]
-    cloud_blocks = [
-        r["cloud"] for r in ok_results if r.get("cloud") and "error" not in r["cloud"]
-    ]
+    cloud_blocks = [r["cloud"] for r in ok_results if r.get("cloud") and "error" not in r["cloud"]]
 
     summary = {
         "questions_requested": len(questions),
@@ -971,6 +1104,372 @@ def _run_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _median(values: list[float]) -> float | None:
+    clean = sorted(v for v in values if v is not None)
+    if not clean:
+        return None
+    n = len(clean)
+    mid = n // 2
+    return clean[mid] if n % 2 else (clean[mid - 1] + clean[mid]) / 2
+
+
+def _optimize_settings() -> tuple[GenerationSettings, GenerationSettings]:
+    # num_ctx is intentionally left unset: changing it between arms forces Ollama
+    # to reload the model from disk, which dominates wall-clock on CPU and masks
+    # the real prompt/param effect. We tune sampling params only.
+    baseline = GenerationSettings()
+    optimized = GenerationSettings(
+        temperature=OPTIMIZED_TEMPERATURE,
+        top_p=OPTIMIZED_TOP_P,
+        max_tokens=OPTIMIZED_MAX_TOKENS,
+    )
+    return baseline, optimized
+
+
+def _optimize_pair(
+    db_path: Path, question: str, strategy: str | None, provider: str
+) -> tuple[RagTurn, RagTurn]:
+    baseline_settings, optimized_settings = _optimize_settings()
+    baseline_turn = run_local_rag(
+        db_path=db_path,
+        question=question,
+        top_k=BASELINE_TOP_K,
+        strategy=strategy,
+        provider_name=provider,
+        prompt_template=BASELINE_PROMPT,
+        generation_settings=baseline_settings,
+    )
+    optimized_turn = run_local_rag(
+        db_path=db_path,
+        question=question,
+        top_k=OPTIMIZED_TOP_K,
+        strategy=strategy,
+        provider_name=provider,
+        prompt_template=OPTIMIZED_PROMPT,
+        generation_settings=optimized_settings,
+    )
+    return baseline_turn, optimized_turn
+
+
+def _optimize_warmup(
+    db_path: Path,
+    question: str,
+    strategy: str | None,
+    provider: str,
+    *,
+    model_override: str | None = None,
+) -> None:
+    try:
+        run_local_rag(
+            db_path=db_path,
+            question=question or "warmup",
+            top_k=BASELINE_TOP_K,
+            strategy=strategy,
+            provider_name=provider,
+            prompt_template=BASELINE_PROMPT,
+            generation_settings=GenerationSettings(max_tokens=WARMUP_MAX_TOKENS),
+            model_override=model_override,
+        )
+    except Exception:
+        pass
+
+
+def _print_optimize_pair(baseline_turn: RagTurn, optimized_turn: RagTurn) -> None:
+    print(f"\n== BASELINE (top_k={BASELINE_TOP_K}, default params, simple prompt) ==")
+    _print_answer("baseline", baseline_turn, "lexical (baseline)")
+    print(
+        f"\n== OPTIMIZED (top_k={OPTIMIZED_TOP_K}, temperature={OPTIMIZED_TEMPERATURE}, "
+        f"top_p={OPTIMIZED_TOP_P}, max_tokens={OPTIMIZED_MAX_TOKENS}, strict prompt) =="
+    )
+    _print_answer("optimized", optimized_turn, "lexical (optimized)")
+
+
+def _repeated_block(
+    *,
+    db_path: Path,
+    question: str,
+    top_k: int,
+    strategy: str | None,
+    provider: str,
+    prompt_template: str,
+    settings: GenerationSettings,
+    expected: list[str],
+    expected_sources: list[str],
+    retrieval_label: str,
+    repeats: int,
+    model_override: str | None = None,
+) -> dict:
+    blocks = []
+    for _ in range(max(1, repeats)):
+        turn = run_local_rag(
+            db_path=db_path,
+            question=question,
+            top_k=top_k,
+            strategy=strategy,
+            provider_name=provider,
+            prompt_template=prompt_template,
+            generation_settings=settings,
+            model_override=model_override,
+        )
+        blocks.append(_turn_block(turn, expected, expected_sources, retrieval_label))
+
+    merged = dict(blocks[-1])
+    merged["repeats"] = len(blocks)
+    merged["retrieval_latency_s"] = _median([b["retrieval_latency_s"] for b in blocks]) or 0.0
+    merged["generation_latency_s"] = _median([b["generation_latency_s"] for b in blocks]) or 0.0
+    merged["total_latency_s"] = _median([b["total_latency_s"] for b in blocks]) or 0.0
+    merged["tokens_per_sec"] = _median([b["tokens_per_sec"] for b in blocks])
+    merged["keyword_recall"] = sum(b["keyword_recall"] for b in blocks) / len(blocks)
+    merged["source_hit"] = (sum(1 for b in blocks if b["source_hit"]) / len(blocks)) >= 0.5
+    merged["sources_format_ok"] = (
+        sum(1 for b in blocks if b["sources_format_ok"]) / len(blocks)
+    ) >= 0.5
+    return merged
+
+
+def _probe_model(
+    db_path: Path, question: str, strategy: str | None, provider: str, model_id: str
+) -> str | None:
+    try:
+        run_local_rag(
+            db_path=db_path,
+            question=question or "warmup",
+            top_k=OPTIMIZED_TOP_K,
+            strategy=strategy,
+            provider_name=provider,
+            prompt_template=OPTIMIZED_PROMPT,
+            generation_settings=GenerationSettings(max_tokens=16),
+            model_override=model_id,
+        )
+        return None
+    except (OllamaClientError, RuntimeError) as exc:
+        return str(exc)
+
+
+def _run_optimize(args: argparse.Namespace) -> int:
+    provider = _validate_local_provider(args.provider)
+    db_path = Path(args.db)
+
+    if args.interactive:
+        _optimize_warmup(db_path, "warmup", args.strategy, provider)
+        print(
+            "Interactive optimize mode (baseline vs optimized). "
+            "Type a question; empty line or 'exit'/'quit' to stop."
+        )
+        while True:
+            try:
+                question = input("\nquestion> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+            if not question or question.lower() in {"exit", "quit"}:
+                break
+            try:
+                baseline_turn, optimized_turn = _optimize_pair(
+                    db_path, question, args.strategy, provider
+                )
+            except (RuntimeError, ValueError) as exc:
+                print(f"error: {exc}")
+                continue
+            _print_optimize_pair(baseline_turn, optimized_turn)
+        return 0
+
+    if args.question is not None and str(args.question).strip():
+        question = str(args.question).strip()
+        _optimize_warmup(db_path, question, args.strategy, provider)
+        baseline_turn, optimized_turn = _optimize_pair(db_path, question, args.strategy, provider)
+        _print_optimize_pair(baseline_turn, optimized_turn)
+        return 0
+
+    dataset_path = Path(args.dataset)
+    output_path = Path(args.output)
+    repeats = max(1, args.repeats)
+
+    questions = _read_questions(dataset_path)
+    if args.limit is not None and args.limit >= 0:
+        questions = questions[: args.limit]
+
+    if questions:
+        warmup_question = str(questions[0].get("question", "")).strip() or "warmup"
+        _optimize_warmup(db_path, warmup_question, args.strategy, provider)
+
+    quant_model = args.quant_model
+    quant_available = False
+    if quant_model:
+        probe_question = str(questions[0].get("question", "")).strip() if questions else "warmup"
+        quant_skip_reason = _probe_model(
+            db_path, probe_question, args.strategy, provider, quant_model
+        )
+        quant_available = quant_skip_reason is None
+        if not quant_available:
+            print(
+                f"quantization comparison skipped: {quant_model} unavailable "
+                f"({quant_skip_reason}). Pull it first: ollama pull {quant_model}"
+            )
+
+    baseline_settings, optimized_settings = _optimize_settings()
+
+    results: list[dict] = []
+    success_count = 0
+    failure_count = 0
+
+    for item in questions:
+        qid = str(item.get("id", "unknown"))
+        question = str(item.get("question", "")).strip()
+        expected = [str(v) for v in item.get("expected", [])]
+        expected_sources = [str(v) for v in item.get("expected_sources", [])]
+        if not question:
+            failure_count += 1
+            continue
+
+        try:
+            baseline_block = _repeated_block(
+                db_path=db_path,
+                question=question,
+                top_k=BASELINE_TOP_K,
+                strategy=args.strategy,
+                provider=provider,
+                prompt_template=BASELINE_PROMPT,
+                settings=baseline_settings,
+                expected=expected,
+                expected_sources=expected_sources,
+                retrieval_label=f"lexical (baseline, top_k={BASELINE_TOP_K})",
+                repeats=repeats,
+            )
+            optimized_block = _repeated_block(
+                db_path=db_path,
+                question=question,
+                top_k=OPTIMIZED_TOP_K,
+                strategy=args.strategy,
+                provider=provider,
+                prompt_template=OPTIMIZED_PROMPT,
+                settings=optimized_settings,
+                expected=expected,
+                expected_sources=expected_sources,
+                retrieval_label=f"lexical (optimized, top_k={OPTIMIZED_TOP_K})",
+                repeats=repeats,
+            )
+            results.append(
+                {
+                    "id": qid,
+                    "question": question,
+                    "expected": expected,
+                    "expected_sources": expected_sources,
+                    "baseline": baseline_block,
+                    "optimized": optimized_block,
+                }
+            )
+            success_count += 1
+            print(
+                f"- {qid}: base_kw={baseline_block['keyword_recall']:.2f} "
+                f"opt_kw={optimized_block['keyword_recall']:.2f} "
+                f"base_s={baseline_block['total_latency_s']:.2f} "
+                f"opt_s={optimized_block['total_latency_s']:.2f}"
+            )
+        except Exception as exc:
+            failure_count += 1
+            print(f"- {qid}: error={exc}")
+            results.append({"id": qid, "question": question, "error": str(exc)})
+
+    # Quant arm runs as its own pass (not interleaved) so Ollama swaps the
+    # model from disk only once, not on every question.
+    if quant_available:
+        print(f"\nrunning quant arm ({quant_model})...")
+        for row in results:
+            if "error" in row:
+                continue
+            try:
+                quant_block = _repeated_block(
+                    db_path=db_path,
+                    question=row["question"],
+                    top_k=OPTIMIZED_TOP_K,
+                    strategy=args.strategy,
+                    provider=provider,
+                    prompt_template=OPTIMIZED_PROMPT,
+                    settings=optimized_settings,
+                    expected=row["expected"],
+                    expected_sources=row["expected_sources"],
+                    retrieval_label=f"lexical (quant, top_k={OPTIMIZED_TOP_K})",
+                    repeats=repeats,
+                    model_override=quant_model,
+                )
+                row["quant"] = quant_block
+                print(
+                    f"- {row['id']}: quant_kw={quant_block['keyword_recall']:.2f} "
+                    f"quant_s={quant_block['total_latency_s']:.2f}"
+                )
+            except Exception as exc:
+                print(f"- {row['id']}: quant_error={exc}")
+
+    ok_results = [row for row in results if "error" not in row]
+    baseline_blocks = [row["baseline"] for row in ok_results]
+    optimized_blocks = [row["optimized"] for row in ok_results]
+    quant_blocks = [row["quant"] for row in ok_results if "quant" in row]
+
+    summary = {
+        "questions_requested": len(questions),
+        "questions_processed": len(results),
+        "success_count": success_count,
+        "failure_count": failure_count,
+        "repeats_per_arm": repeats,
+        "baseline": _aggregate_blocks(baseline_blocks),
+        "optimized": _aggregate_blocks(optimized_blocks),
+    }
+    if quant_available:
+        summary["quant"] = _aggregate_blocks(quant_blocks)
+
+    output = {
+        "mode": "day29_local_optimization",
+        "db": _display_path(db_path),
+        "dataset": _display_path(dataset_path),
+        "strategy_filter": args.strategy,
+        "local_provider": provider,
+        "baseline_config": {
+            "prompt_template": "BASELINE_PROMPT",
+            "top_k": BASELINE_TOP_K,
+            "temperature": None,
+            "top_p": None,
+            "max_tokens": None,
+        },
+        "optimized_config": {
+            "prompt_template": "OPTIMIZED_PROMPT",
+            "top_k": OPTIMIZED_TOP_K,
+            "temperature": OPTIMIZED_TEMPERATURE,
+            "top_p": OPTIMIZED_TOP_P,
+            "max_tokens": OPTIMIZED_MAX_TOKENS,
+        },
+        "quant_config": (
+            {"model": quant_model, "based_on": "optimized_config"} if quant_available else None
+        ),
+        "summary": summary,
+        "results": results,
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _print_summary(label: str, agg: dict) -> None:
+        tps = agg["avg_tokens_per_sec"]
+        tps_text = f"{tps:.1f}" if tps is not None else "n/a"
+        print(f"summary [{label}]:")
+        print(
+            f"  kw_recall={agg['avg_keyword_recall']:.3f} "
+            f"source_hit={agg['source_hit_rate']:.3f} "
+            f"avg_total_s={agg['avg_total_latency_s']:.2f} "
+            f"tokens_per_sec={tps_text} "
+            f"avg_chars={agg['avg_answer_chars']:.1f} "
+            f"sources_fmt={agg['sources_format_rate']:.2f}"
+        )
+
+    print(f"\nrepeats_per_arm={repeats} (median latency/tokens_per_sec, rate for quality fields)")
+    _print_summary("BASELINE", summary["baseline"])
+    _print_summary("OPTIMIZED", summary["optimized"])
+    if quant_available:
+        _print_summary(f"QUANT={quant_model}", summary["quant"])
+    print(f"success={success_count} failure={failure_count}")
+    print(f"report: {_display_path(output_path)}")
+    return 0
+
+
 def run() -> int:
     _ensure_console_utf8()
     args = _parse_args()
@@ -981,6 +1480,8 @@ def run() -> int:
             return _run_compare(args)
         if args.command == "eval":
             return _run_eval(args)
+        if args.command == "optimize":
+            return _run_optimize(args)
         raise ValueError(f"Unsupported command: {args.command}")
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}")

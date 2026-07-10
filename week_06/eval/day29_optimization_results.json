@@ -1,0 +1,208 @@
+{
+  "mode": "day29_local_optimization",
+  "db": "data/week_05/rag_index.sqlite",
+  "dataset": "week_05/eval/questions.json",
+  "strategy_filter": null,
+  "local_provider": "Qwen2.5 Coder 7B (Ollama, local)",
+  "baseline_config": {
+    "prompt_template": "BASELINE_PROMPT",
+    "top_k": 5,
+    "temperature": null,
+    "top_p": null,
+    "max_tokens": null
+  },
+  "optimized_config": {
+    "prompt_template": "OPTIMIZED_PROMPT",
+    "top_k": 5,
+    "temperature": 0.2,
+    "top_p": 0.9,
+    "max_tokens": 160
+  },
+  "quant_config": {
+    "model": "qwen2.5-coder:7b-instruct-q3_K_M",
+    "based_on": "optimized_config"
+  },
+  "summary": {
+    "questions_requested": 2,
+    "questions_processed": 2,
+    "success_count": 1,
+    "failure_count": 1,
+    "repeats_per_arm": 1,
+    "baseline": {
+      "count": 1,
+      "avg_keyword_recall": 0.75,
+      "source_hit_rate": 1.0,
+      "avg_retrieved_count": 5.0,
+      "avg_retrieval_latency_s": 0.05391519982367754,
+      "avg_generation_latency_s": 126.9381109001115,
+      "avg_total_latency_s": 126.99202609993517,
+      "avg_answer_chars": 526.0,
+      "avg_tokens_per_sec": 5.525639970987627,
+      "avg_load_seconds": 0.3668402,
+      "sources_format_rate": 1.0,
+      "fallback_count": 0
+    },
+    "optimized": {
+      "count": 1,
+      "avg_keyword_recall": 0.75,
+      "source_hit_rate": 1.0,
+      "avg_retrieved_count": 5.0,
+      "avg_retrieval_latency_s": 0.04466790007427335,
+      "avg_generation_latency_s": 142.24430159991607,
+      "avg_total_latency_s": 142.28896949999034,
+      "avg_answer_chars": 407.0,
+      "avg_tokens_per_sec": 5.381182289659486,
+      "avg_load_seconds": 0.2163375,
+      "sources_format_rate": 1.0,
+      "fallback_count": 0
+    },
+    "quant": {
+      "count": 1,
+      "avg_keyword_recall": 0.75,
+      "source_hit_rate": 1.0,
+      "avg_retrieved_count": 5.0,
+      "avg_retrieval_latency_s": 0.047732200007885695,
+      "avg_generation_latency_s": 249.1902811001055,
+      "avg_total_latency_s": 249.23801330011338,
+      "avg_answer_chars": 387.0,
+      "avg_tokens_per_sec": 4.4911384655990885,
+      "avg_load_seconds": 4.9137689,
+      "sources_format_rate": 1.0,
+      "fallback_count": 0
+    }
+  },
+  "results": [
+    {
+      "id": "q01",
+      "question": "Чем max_tokens отличается от context window согласно материалам?",
+      "error": "Ollama request timed out after 300s (model=qwen2.5-coder:7b); cold model load + long CPU generation can exceed this, retry or raise timeout"
+    },
+    {
+      "id": "q02",
+      "question": "Что такое top_p (nucleus sampling) и когда его уменьшать?",
+      "expected": [
+        "top_p",
+        "nucleus",
+        "вероятность",
+        "предсказуемый"
+      ],
+      "expected_sources": [
+        "lecture-01-notes.md"
+      ],
+      "baseline": {
+        "retrieval": "lexical (baseline, top_k=5)",
+        "generation_provider": "Qwen2.5 Coder 7B (Ollama, local)",
+        "model": "qwen2.5-coder:7b",
+        "finish_reason": "stop",
+        "retrieved_count": 5,
+        "keyword_recall": 0.75,
+        "source_hit": true,
+        "retrieval_latency_s": 0.05391519982367754,
+        "generation_latency_s": 126.9381109001115,
+        "total_latency_s": 126.99202609993517,
+        "answer_text": "Top-p (nucleus sampling) - это метод выбора токена в генерации текста, который ограничивает выборку токенов, суммарная вероятность которых достигает заданного значения p. Это делается для уменьшения вариативности и предсказуемости ответа модели.\n\nИспользуйте top-p, когда нужно получить более предсказуемый ответ или когда требуется ограничить выбор токенов в рамках определенной вероятностной суммы. Это может быть полезно при генерации кода, инструкций и других текстовых данных, где стабильность важна.\n\nSources: [C1], [C4]",
+        "answer_chars": 526,
+        "sources_format_ok": true,
+        "used_source_labels": [
+          "C1",
+          "C4"
+        ],
+        "used_sources": [
+          {
+            "label": "C1",
+            "source": "week_05/corpus/AI_Advent_Week1_Day1_AI_Prompting_Notes_FIXED.pdf",
+            "section": "paragraph",
+            "chunk_id": "497c702ebe06e764"
+          },
+          {
+            "label": "C4",
+            "source": "week_05/corpus/lecture-01-notes.md",
+            "section": "heading:8. Параметры LLM (исправленная версия)",
+            "chunk_id": "84f8ad440d084ad4"
+          }
+        ],
+        "fallback_reason": null,
+        "tokens_out": 160,
+        "tokens_per_sec": 5.525639970987627,
+        "load_seconds": 0.3668402,
+        "repeats": 1
+      },
+      "optimized": {
+        "retrieval": "lexical (optimized, top_k=5)",
+        "generation_provider": "Qwen2.5 Coder 7B (Ollama, local)",
+        "model": "qwen2.5-coder:7b",
+        "finish_reason": "stop",
+        "retrieved_count": 5,
+        "keyword_recall": 0.75,
+        "source_hit": true,
+        "retrieval_latency_s": 0.04466790007427335,
+        "generation_latency_s": 142.24430159991607,
+        "total_latency_s": 142.28896949999034,
+        "answer_text": "Top-p (nucleus sampling) — это метод выбора следующего токена в процессе генерации текста, который оставляет минимальный набор самых вероятных токенов с суммарной вероятностью p. Этот метод используется для получения более предсказуемого ответа или широкого выбора вариантов.\n\nУменьшать top-p нужно:\n- Когда требуется более предсказуемый ответ.\n- Когда нужен меньше вариантов генерации.\n\nSources: [C1], [C3]",
+        "answer_chars": 407,
+        "sources_format_ok": true,
+        "used_source_labels": [
+          "C1",
+          "C3"
+        ],
+        "used_sources": [
+          {
+            "label": "C1",
+            "source": "week_05/corpus/AI_Advent_Week1_Day1_AI_Prompting_Notes_FIXED.pdf",
+            "section": "paragraph",
+            "chunk_id": "497c702ebe06e764"
+          },
+          {
+            "label": "C3",
+            "source": "week_05/corpus/AI_Advent_Week1_Day1_AI_Prompting_Notes_FIXED.pdf",
+            "section": "paragraph",
+            "chunk_id": "3181d0bcc4fdbf5d"
+          }
+        ],
+        "fallback_reason": null,
+        "tokens_out": 125,
+        "tokens_per_sec": 5.381182289659486,
+        "load_seconds": 0.2163375,
+        "repeats": 1
+      },
+      "quant": {
+        "retrieval": "lexical (quant, top_k=5)",
+        "generation_provider": "Qwen2.5 Coder 7B (Ollama, local)",
+        "model": "qwen2.5-coder:7b-instruct-q3_K_M",
+        "finish_reason": "stop",
+        "retrieved_count": 5,
+        "keyword_recall": 0.75,
+        "source_hit": true,
+        "retrieval_latency_s": 0.047732200007885695,
+        "generation_latency_s": 249.1902811001055,
+        "total_latency_s": 249.23801330011338,
+        "answer_text": "Top-P (nucleus sampling) — это метод выбора следующего токена, который сохраняет минимальный набор самых вероятных токенов с суммарной вероятностью p. Этот параметр полезен, когда требуется более предсказуемый ответ или широкий выбор вариантов.\n\nУменьшение top-P обычно используется:\n- Когда нужен более предсказуемый ответ.\n- Когда нужно меньше вариантов генерации.\n\nSources: [C1], [C3]",
+        "answer_chars": 387,
+        "sources_format_ok": true,
+        "used_source_labels": [
+          "C1",
+          "C3"
+        ],
+        "used_sources": [
+          {
+            "label": "C1",
+            "source": "week_05/corpus/AI_Advent_Week1_Day1_AI_Prompting_Notes_FIXED.pdf",
+            "section": "paragraph",
+            "chunk_id": "497c702ebe06e764"
+          },
+          {
+            "label": "C3",
+            "source": "week_05/corpus/AI_Advent_Week1_Day1_AI_Prompting_Notes_FIXED.pdf",
+            "section": "paragraph",
+            "chunk_id": "3181d0bcc4fdbf5d"
+          }
+        ],
+        "fallback_reason": null,
+        "tokens_out": 117,
+        "tokens_per_sec": 4.4911384655990885,
+        "load_seconds": 4.9137689,
+        "repeats": 1
+      }
+    }
+  ]
+}
