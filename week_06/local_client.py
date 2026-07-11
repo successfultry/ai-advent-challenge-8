@@ -52,6 +52,7 @@ class OllamaClient:
         self,
         prompt: str,
         *,
+        system: str | None = None,
         temperature: float | None = None,
         top_p: float | None = None,
         max_tokens: int | None = None,
@@ -67,9 +68,14 @@ class OllamaClient:
         if context_window is not None:
             options["num_ctx"] = context_window
 
+        messages: list[dict[str, str]] = []
+        if system and system.strip():
+            messages.append({"role": "system", "content": system.strip()})
+        messages.append({"role": "user", "content": prompt})
+
         payload: dict = {
             "model": self.model_id,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "stream": False,
         }
         if options:

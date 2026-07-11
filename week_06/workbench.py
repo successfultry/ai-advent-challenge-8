@@ -14,7 +14,7 @@ MAX_HISTORY_ITEMS = 5
 MODE_INSTRUCTIONS: dict[str, str] = {
     "general": (
         "Answer in the same language as the user. "
-        "Be concise: 2-5 sentences unless code is explicitly requested. "
+        "Be concise: at most 3 sentences unless code is explicitly requested. "
         "Do not produce step-by-step setup guides unless asked."
     ),
     "explain_error": (
@@ -74,9 +74,8 @@ def build_prompt(mode: str, user_prompt: str) -> str:
     clean_prompt = user_prompt.strip()
     if not clean_prompt:
         raise ValueError("Prompt must not be empty")
-
-    instruction = MODE_INSTRUCTIONS[validate_mode(mode)]
-    return f"Instruction:\n{instruction}\n\nUser request:\n{clean_prompt}"
+    validate_mode(mode)
+    return clean_prompt
 
 
 def _preview(text: str, *, max_chars: int = 140) -> str:
@@ -97,10 +96,11 @@ class WorkbenchService:
 
         temperature = float(os.getenv("LLM_TEMPERATURE", "0.2"))
         top_p = float(os.getenv("LLM_TOP_P", "0.9"))
-        max_tokens = int(os.getenv("LLM_MAX_TOKENS", "512"))
+        max_tokens = int(os.getenv("LLM_MAX_TOKENS", "220"))
 
         response = client.generate(
             final_prompt,
+            system=MODE_INSTRUCTIONS[mode],
             temperature=temperature,
             top_p=top_p,
             max_tokens=max_tokens,
