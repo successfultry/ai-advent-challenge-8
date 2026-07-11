@@ -12,6 +12,9 @@ Environment=HOST=127.0.0.1
 Environment=PORT=8000
 Environment=MAX_PROMPT_CHARS=4000
 Environment=RATE_LIMIT_PER_MIN=10
+Environment=LLM_TEMPERATURE=0.2
+Environment=LLM_TOP_P=0.9
+Environment=LLM_MAX_TOKENS=512
 ExecStart=/usr/bin/env sh -lc 'source "$HOME/.local/bin/env" && uv run python -m week_06.web_app'
 Restart=always
 RestartSec=3

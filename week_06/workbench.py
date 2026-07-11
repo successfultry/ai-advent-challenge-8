@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections import deque
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -11,7 +12,11 @@ DEFAULT_MODE = "general"
 MAX_HISTORY_ITEMS = 5
 
 MODE_INSTRUCTIONS: dict[str, str] = {
-    "general": "Answer clearly and concisely. If code is needed, keep it minimal.",
+    "general": (
+        "Answer in the same language as the user. "
+        "Be concise: 2-5 sentences unless code is explicitly requested. "
+        "Do not produce step-by-step setup guides unless asked."
+    ),
     "explain_error": (
         "You are a senior Python backend engineer. Explain the terminal error, likely "
         "root cause, and exact fix. Keep it concise and practical."
@@ -89,7 +94,17 @@ class WorkbenchService:
     def ask(self, mode: str, prompt: str) -> WorkbenchResult:
         final_prompt = build_prompt(mode, prompt)
         client = OllamaClient(provider_name=self.provider_name)
-        response = client.generate(final_prompt)
+
+        temperature = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+        top_p = float(os.getenv("LLM_TOP_P", "0.9"))
+        max_tokens = int(os.getenv("LLM_MAX_TOKENS", "512"))
+
+        response = client.generate(
+            final_prompt,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+        )
         result = WorkbenchResult(
             text=response.text,
             latency_seconds=response.latency_seconds,
