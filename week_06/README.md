@@ -513,6 +513,156 @@ line (accepts both `[C1], [C3]` and `[C1, C3]`, and `Sources: []`).
 - wall-clock on CPU is dominated by prompt-eval/decode of the 7B and is noisy at `repeats=1`; use
   `--repeats 3` (median) or a smaller model for steadier numbers.
 
+## Day 30 — Local LLM as a Private Service (VPS-ready)
+
+### Goal
+
+Expose the local LLM as a private network service with:
+
+- HTTP API;
+- browser chat UI;
+- API key authentication;
+- basic limits (`rate limit`, `max context/prompt`);
+- network accessibility from outside (VPS/public URL).
+
+### Why Day 30 differs from Day 27
+
+- Day 27: local app for yourself on localhost.
+- Day 30: deployable service for external clients over network, with auth and guardrails.
+
+### Architecture
+
+```text
+browser/curl
+   -> Flask private API (week_06.web_app)
+      -> local Ollama endpoint (127.0.0.1:11434)
+         -> qwen2.5-coder:3b
+```
+
+Only Flask/Caddy is exposed publicly. Ollama itself stays private.
+
+### Env vars
+
+```text
+PRIVATE_LLM_API_KEY   required
+LLM_PROVIDER          default: Qwen2.5 Coder 3B (Ollama, local)
+HOST                  default: 0.0.0.0
+PORT                  default: 8000
+MAX_PROMPT_CHARS      default: 4000
+RATE_LIMIT_PER_MIN    default: 10
+```
+
+### API endpoints
+
+- `GET /api/health` (auth required)
+- `POST /api/chat` (auth required)
+- `GET /api/history` (auth required)
+
+Compatibility aliases (also auth-required): `/health`, `/ask`, `/history`.
+
+Error contract:
+
+```json
+{"error":"...","code":401}
+```
+
+### Run locally
+
+Ensure model is pulled:
+
+```bash
+ollama pull qwen2.5-coder:3b
+```
+
+```bash
+# bash
+export PRIVATE_LLM_API_KEY=dev-secret
+export LLM_PROVIDER="Qwen2.5 Coder 3B (Ollama, local)"
+export HOST=127.0.0.1
+export PORT=8000
+export MAX_PROMPT_CHARS=4000
+export RATE_LIMIT_PER_MIN=10
+
+uv run python -m week_06.web_app
+```
+
+### Run on VPS
+
+Use `week_06/deploy/README.md` for full steps.
+
+Recommended VPS for stable 3B demo:
+
+- 4 vCPU / 8 GB RAM (Ubuntu 24.04)
+
+Minimal:
+
+- 2 vCPU / 4 GB RAM (works but slower/riskier)
+
+### What to verify
+
+- Auth:
+  - no Bearer key -> `401`
+  - valid key -> request succeeds
+- Rate limit:
+  - repeated requests exceed `RATE_LIMIT_PER_MIN` -> `429` + `Retry-After`
+- Max context guard:
+  - prompt > `MAX_PROMPT_CHARS` -> `413`
+- Stability:
+  - 5 sequential requests return stable responses (no crashes)
+- Network access:
+  - service reachable from external machine/browser over VPS/public URL.
+
+### Copy-paste curl checks
+
+```bash
+# health
+curl http://127.0.0.1:8000/api/health \
+  -H "Authorization: Bearer dev-secret"
+
+# chat
+curl http://127.0.0.1:8000/api/chat \
+  -H "Authorization: Bearer dev-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"general","prompt":"Коротко объясни, что такое локальная LLM"}'
+
+# unauthorized
+curl -i http://127.0.0.1:8000/api/health
+
+# rate limit (expect some 429)
+for i in $(seq 1 12); do
+  curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8000/api/health \
+    -H "Authorization: Bearer dev-secret"
+done
+```
+
+Max prompt check:
+
+```bash
+python - <<'PY'
+import requests
+r = requests.post(
+    "http://127.0.0.1:8000/api/chat",
+    headers={"Authorization": "Bearer dev-secret"},
+    json={"mode": "general", "prompt": "x" * 5000},
+    timeout=60,
+)
+print(r.status_code)
+print(r.text)
+PY
+```
+
+### Demo flow (Day 30)
+
+1. Start service with `PRIVATE_LLM_API_KEY`.
+2. Open browser UI (`/`) and enter API key in page.
+3. Check model health.
+4. Send a chat request from browser.
+5. Send the same through `curl /api/chat`.
+6. Show `401` without key.
+7. Show `429` rate-limit.
+8. Show `413` oversized prompt.
+9. Show external access from another device/network.
+
 ## Troubleshooting (bash + Ollama)
 
 - `model not found`:
@@ -555,3 +705,4 @@ line (accepts both `[C1], [C3]` and `[C1, C3]`, and `Sources: []`).
 | 27 | Integrate local LLM into a real local app (Flask web UI + prompt modes + request history) | `uv run python -m week_06.web_app` | `web_app.py`, `workbench.py`, `templates/workbench.html`, `local_client.py`, `README.md` | done | _link_ |
 | 28 | Reuse Week 5 SQLite index for RAG with local lexical retrieval; compare local vs cloud generation on the same context (symmetric metrics); optional full cloud stack via `--cloud-retrieval vector` | `uv run python -m week_06.local_rag ask`, `compare`, `eval` | `local_rag.py`, `README.md`, `week_06/eval/day28_results.json` | done | _link_ |
 | 29 | Optimize local LLM generation for the RAG Q&A use case: baseline vs optimized prompt + sampling params (temperature/top_p/max_tokens) on identical retrieval, native Ollama `/api/chat` with tokens/sec + load metrics, optional `--quant-model` arm | `uv run python -m week_06.local_rag optimize --limit 2` | `local_rag.py`, `local_client.py`, `README.md`, `week_06/eval/day29_optimization_results.json` | done | _link_ |
+| 30 | Expose local LLM as a private network service (VPS-ready): HTTP API + browser chat + API-key auth + rate limit + max prompt guard + external access checks | `uv run python -m week_06.web_app` | `web_app.py`, `workbench.py`, `templates/workbench.html`, `week_06/deploy/*`, `README.md` | done | _link_ |

@@ -34,6 +34,10 @@ class WorkbenchResult:
     finish_reason: str
     model: str
     provider: str
+    tokens_out: int | None = None
+    tokens_per_sec: float | None = None
+    prompt_tokens: int | None = None
+    load_seconds: float | None = None
 
 
 @dataclass
@@ -45,6 +49,8 @@ class HistoryItem:
     finish_reason: str
     model: str
     provider: str
+    tokens_out: int | None = None
+    tokens_per_sec: float | None = None
 
 
 def local_providers() -> list[str]:
@@ -90,6 +96,10 @@ class WorkbenchService:
             finish_reason=response.finish_reason,
             model=client.model_id,
             provider=client.provider_name,
+            tokens_out=response.tokens_out,
+            tokens_per_sec=response.tokens_per_sec,
+            prompt_tokens=response.prompt_tokens,
+            load_seconds=response.load_seconds,
         )
         self._history.appendleft(
             HistoryItem(
@@ -100,6 +110,8 @@ class WorkbenchService:
                 finish_reason=result.finish_reason,
                 model=result.model,
                 provider=result.provider,
+                tokens_out=result.tokens_out,
+                tokens_per_sec=result.tokens_per_sec,
             )
         )
         return result

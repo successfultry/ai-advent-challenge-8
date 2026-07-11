@@ -1,0 +1,22 @@
+[Unit]
+Description=Week 06 Private LLM Flask Service
+After=network-online.target ollama.service
+Wants=network-online.target ollama.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ai-advent-challenge-8
+Environment=PRIVATE_LLM_API_KEY=change-me
+Environment=LLM_PROVIDER=Qwen2.5 Coder 3B (Ollama, local)
+Environment=HOST=127.0.0.1
+Environment=PORT=8000
+Environment=MAX_PROMPT_CHARS=4000
+Environment=RATE_LIMIT_PER_MIN=10
+ExecStart=/usr/bin/env sh -lc 'source "$HOME/.local/bin/env" && uv run python -m week_06.web_app'
+Restart=always
+RestartSec=3
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

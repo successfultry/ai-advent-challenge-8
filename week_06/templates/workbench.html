@@ -114,7 +114,8 @@
         color: var(--muted);
       }
       select,
-      textarea {
+      textarea,
+      input {
         border: 1px solid var(--border);
         border-radius: 10px;
         background: var(--card-alt);
@@ -177,6 +178,8 @@
         <div class="inline">
           <span class="pill">Provider: <strong id="provider-pill">{{ default_provider }}</strong></span>
           <span class="pill">Endpoint: <strong>{{ endpoint }}</strong></span>
+          <span class="pill">Max prompt: <strong>{{ max_prompt_chars }}</strong></span>
+          <span class="pill">Rate/min: <strong>{{ rate_limit_per_min }}</strong></span>
           <span class="pill">Cloud models: <strong>not used</strong></span>
           <span class="pill"><span id="health-dot" class="dot"></span> <span id="health-text">unknown</span></span>
           <button id="health-btn" class="secondary" type="button">Check local model</button>
@@ -194,6 +197,10 @@
               </option>
               {% endfor %}
             </select>
+          </div>
+          <div class="field">
+            <label for="api-key">API key (Bearer token)</label>
+            <input id="api-key" type="password" placeholder="Paste PRIVATE_LLM_API_KEY here" />
           </div>
           <div class="field">
             <label for="mode">Mode</label>
@@ -242,6 +249,21 @@
       const healthText = document.getElementById("health-text");
       const healthDot = document.getElementById("health-dot");
       const providerPill = document.getElementById("provider-pill");
+      const apiKeyInput = document.getElementById("api-key");
+      const API_KEY_STORAGE_KEY = "week06-private-api-key";
+
+      apiKeyInput.value = localStorage.getItem(API_KEY_STORAGE_KEY) || "";
+      apiKeyInput.addEventListener("input", () => {
+        localStorage.setItem(API_KEY_STORAGE_KEY, apiKeyInput.value.trim());
+      });
+
+      function authHeaders(extra = {}) {
+        const key = apiKeyInput.value.trim();
+        return {
+          ...extra,
+          ...(key ? { Authorization: `Bearer ${key}` } : {}),
+        };
+      }
 
       function setLoading(isLoading) {
         askBtn.disabled = isLoading;
@@ -263,10 +285,13 @@
         for (const item of items) {
           const div = document.createElement("div");
           div.className = "history-item";
+          const tps = item.tokens_per_sec === null || item.tokens_per_sec === undefined
+            ? "n/a"
+            : item.tokens_per_sec.toFixed(1);
           div.innerHTML = `
             <div class="history-mode">${item.mode}</div>
             <div>${item.prompt.slice(0, 180)}</div>
-            <div class="meta">latency_s=${item.latency_seconds.toFixed(2)} · finish_reason=${item.finish_reason}</div>
+            <div class="meta">latency_s=${item.latency_seconds.toFixed(2)} · tps=${tps} · finish_reason=${item.finish_reason}</div>
           `;
           div.addEventListener("click", () => {
             modeSelect.value = item.mode;
@@ -278,8 +303,14 @@
 
       async function loadHistory() {
         const provider = providerSelect.value;
-        const res = await fetch(`/history?provider=${encodeURIComponent(provider)}`);
+        const res = await fetch(`/api/history?provider=${encodeURIComponent(provider)}`, {
+          headers: authHeaders(),
+        });
         const data = await res.json();
+        if (!res.ok) {
+          historyNode.innerHTML = `<div class="muted">History unavailable: ${data.error || "request failed"} (HTTP ${res.status})</div>`;
+          return;
+        }
         renderHistory(data.items || []);
       }
 
@@ -288,7 +319,9 @@
         providerPill.textContent = provider;
         setHealth(false, "checking...");
         try {
-          const res = await fetch(`/health?provider=${encodeURIComponent(provider)}`);
+          const res = await fetch(`/api/health?provider=${encodeURIComponent(provider)}`, {
+            headers: authHeaders(),
+          });
           const data = await res.json();
           if (!res.ok || !data.ok) {
             setHealth(false, data.error || "unreachable");
@@ -312,9 +345,9 @@
         responseNode.textContent = "Waiting for response…";
         responseMeta.textContent = "";
         try {
-          const res = await fetch("/ask", {
+          const res = await fetch("/api/chat", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: authHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({ provider, mode, prompt }),
           });
           const data = await res.json();
@@ -324,7 +357,10 @@
             return;
           }
           responseNode.textContent = data.text;
-          responseMeta.textContent = `latency_s=${data.latency_seconds.toFixed(2)} · finish_reason=${data.finish_reason} · model=${data.model}`;
+          const tps = data.tokens_per_sec === null || data.tokens_per_sec === undefined
+            ? "n/a"
+            : data.tokens_per_sec.toFixed(1);
+          responseMeta.textContent = `latency_s=${data.latency_seconds.toFixed(2)} · tokens_per_sec=${tps} · finish_reason=${data.finish_reason} · model=${data.model}`;
           await loadHistory();
         } catch {
           responseNode.textContent = "Network error while calling local app.";
