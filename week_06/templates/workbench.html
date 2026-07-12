@@ -251,6 +251,8 @@
       const providerPill = document.getElementById("provider-pill");
       const apiKeyInput = document.getElementById("api-key");
       const API_KEY_STORAGE_KEY = "week06-private-api-key";
+      const HISTORY_STORAGE_KEY = "week06-private-history";
+      const HISTORY_LIMIT = 5;
 
       apiKeyInput.value = localStorage.getItem(API_KEY_STORAGE_KEY) || "";
       apiKeyInput.addEventListener("input", () => {
@@ -301,17 +303,27 @@
         }
       }
 
-      async function loadHistory() {
-        const provider = providerSelect.value;
-        const res = await fetch(`/api/history?provider=${encodeURIComponent(provider)}`, {
-          headers: authHeaders(),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          historyNode.innerHTML = `<div class="muted">History unavailable: ${data.error || "request failed"} (HTTP ${res.status})</div>`;
-          return;
+      function loadHistory() {
+        renderHistory(readHistory());
+      }
+
+      function readHistory() {
+        try {
+          return JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) || "[]");
+        } catch {
+          return [];
         }
-        renderHistory(data.items || []);
+      }
+
+      function writeHistory(items) {
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(items.slice(0, HISTORY_LIMIT)));
+      }
+
+      function addHistoryItem(item) {
+        const items = readHistory();
+        items.unshift(item);
+        writeHistory(items);
+        renderHistory(readHistory());
       }
 
       async function checkHealth() {
@@ -361,7 +373,16 @@
             ? "n/a"
             : data.tokens_per_sec.toFixed(1);
           responseMeta.textContent = `latency_s=${data.latency_seconds.toFixed(2)} · tokens_per_sec=${tps} · finish_reason=${data.finish_reason} · model=${data.model}`;
-          await loadHistory();
+          addHistoryItem({
+            provider,
+            mode,
+            prompt,
+            latency_seconds: data.latency_seconds,
+            finish_reason: data.finish_reason,
+            model: data.model,
+            tokens_out: data.tokens_out,
+            tokens_per_sec: data.tokens_per_sec,
+          });
         } catch {
           responseNode.textContent = "Network error while calling local app.";
           responseMeta.textContent = "";
@@ -373,7 +394,7 @@
       providerSelect.addEventListener("change", async () => {
         providerPill.textContent = providerSelect.value;
         await checkHealth();
-        await loadHistory();
+        loadHistory();
       });
       healthBtn.addEventListener("click", checkHealth);
 

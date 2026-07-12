@@ -217,7 +217,8 @@ Ship a real local app that uses the local Ollama model:
 The implementation is intentionally split so Day 27 stays simple now, but can be extended later:
 
 - **UI / transport layer**: Flask app (`week_06/web_app.py`) and HTML UI (`week_06/templates/workbench.html`);
-- **Use-case layer**: prompt modes, prompt building, request handling, in-memory history (`week_06/workbench.py`);
+- **Use-case layer**: prompt modes, prompt building, request handling (`week_06/workbench.py`);
+- **History layer**: browser-only `localStorage` in `week_06/templates/workbench.html`, so users sharing the same API key do not see each other's prompts;
 - **LLM layer**: existing local provider wrapper (`week_06/local_client.py`) backed by `shared/client.py`;
 - **Future retrieval layer**: not implemented now (reserved for RAG / TG-export search later).
 
@@ -278,7 +279,7 @@ def healthz():
 - **Check local model** returns healthy status;
 - mode switch changes behavior (error explanation vs tests vs architecture review);
 - response includes `latency_s`, `finish_reason`, and model id;
-- history shows the last 5 requests and can refill prompt/mode.
+- browser-local history shows the last 5 requests and can refill prompt/mode.
 
 ### Demo Flow (Day 27)
 
@@ -573,9 +574,12 @@ LLM_MAX_TOKENS        default: 220
 
 - `GET /api/health` (auth required)
 - `POST /api/chat` (auth required)
-- `GET /api/history` (auth required)
+- `GET /api/history` (auth required; compatibility stub, returns client-side storage metadata)
 
 Compatibility aliases (also auth-required): `/health`, `/ask`, `/history`.
+
+The browser UI stores request history in `localStorage` instead of on the Flask server.
+This avoids leaking prompts between users who share the same `PRIVATE_LLM_API_KEY`.
 
 Error contract:
 

@@ -177,12 +177,7 @@ def api_history():
 
 
 def _history_impl():
-    provider_name = request.args.get("provider", _DEFAULT_PROVIDER)
-    try:
-        items = _get_service(provider_name).history()
-    except ValueError as exc:
-        return _json_error(400, str(exc))
-    return jsonify({"items": items})
+    return jsonify({"items": [], "storage": "client-side"})
 
 
 @app.post("/api/chat")

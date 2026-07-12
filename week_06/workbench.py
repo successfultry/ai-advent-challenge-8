@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import os
-from collections import deque
-from dataclasses import asdict, dataclass
-from typing import Any
+from dataclasses import dataclass
 
 from shared.config import PROVIDERS
 from week_06.local_client import OllamaClient, OllamaClientError
@@ -45,19 +43,6 @@ class WorkbenchResult:
     load_seconds: float | None = None
 
 
-@dataclass
-class HistoryItem:
-    mode: str
-    prompt: str
-    answer_preview: str
-    latency_seconds: float
-    finish_reason: str
-    model: str
-    provider: str
-    tokens_out: int | None = None
-    tokens_per_sec: float | None = None
-
-
 def local_providers() -> list[str]:
     return [name for name, provider in PROVIDERS.items() if provider.api_key_env is None]
 
@@ -78,17 +63,9 @@ def build_prompt(mode: str, user_prompt: str) -> str:
     return clean_prompt
 
 
-def _preview(text: str, *, max_chars: int = 140) -> str:
-    compact = " ".join(text.split())
-    if len(compact) <= max_chars:
-        return compact
-    return f"{compact[: max_chars - 1]}…"
-
-
 class WorkbenchService:
     def __init__(self, provider_name: str) -> None:
         self.provider_name = provider_name
-        self._history: deque[HistoryItem] = deque(maxlen=MAX_HISTORY_ITEMS)
 
     def ask(self, mode: str, prompt: str) -> WorkbenchResult:
         final_prompt = build_prompt(mode, prompt)
@@ -116,23 +93,7 @@ class WorkbenchService:
             prompt_tokens=response.prompt_tokens,
             load_seconds=response.load_seconds,
         )
-        self._history.appendleft(
-            HistoryItem(
-                mode=mode,
-                prompt=prompt.strip(),
-                answer_preview=_preview(result.text),
-                latency_seconds=result.latency_seconds,
-                finish_reason=result.finish_reason,
-                model=result.model,
-                provider=result.provider,
-                tokens_out=result.tokens_out,
-                tokens_per_sec=result.tokens_per_sec,
-            )
-        )
         return result
-
-    def history(self) -> list[dict[str, Any]]:
-        return [asdict(item) for item in self._history]
 
 
 __all__ = [
