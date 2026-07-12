@@ -536,16 +536,24 @@ Expose the local LLM as a private network service with:
 
 ```text
 browser/curl
-   -> Flask private API (week_06.web_app)
+   -> Caddy HTTPS reverse proxy
+   -> Flask private API (week_06.web_app, systemd, 127.0.0.1:8000)
       -> local Ollama endpoint (127.0.0.1:11434)
          -> qwen2.5:3b
 ```
 
-Only Flask/Caddy is exposed publicly. Ollama itself stays private. The VPS demo defaults
+Only Caddy is exposed publicly. Flask listens on `127.0.0.1:8000`; Ollama listens on
+`127.0.0.1:11434`. The VPS demo defaults
 to `qwen2.5:3b` for general chat because it follows short Russian/non-code prompts better
 than the code-focused `qwen2.5-coder:3b`. The coder 3B model stays available for code tasks.
 `qwen2.5-coder:7b` is optional and was not pulled for the CPU-only VPS demo because it is
 too slow for a reliable live walkthrough.
+
+Final public demo URL:
+
+```text
+https://day30-llm-demo.duckdns.org
+```
 
 ### Env vars
 
@@ -662,21 +670,24 @@ PY
 
 ### Verified VPS checks
 
-These checks were run against the public DigitalOcean VPS demo endpoint:
+These checks were run against the final DigitalOcean VPS demo endpoint with DuckDNS +
+Caddy HTTPS:
 
 ```text
-VPS URL: http://139.59.141.72:8000
+VPS URL: https://day30-llm-demo.duckdns.org
 Model: qwen2.5:3b
 Provider: Qwen2.5 3B (Ollama, local)
+Reverse proxy: Caddy
+Service manager: systemd (`private-llm.service`)
 ```
 
-`demo-secret` is a demo value supplied through `PRIVATE_LLM_API_KEY`; real secrets are
-runtime environment values and are not committed to code.
+`day30-vps-demo-2026` is a demo value supplied through `PRIVATE_LLM_API_KEY`; real
+secrets are runtime environment values and are not committed to code.
 
 Auth rejects missing Bearer token:
 
 ```bash
-curl -i http://139.59.141.72:8000/api/health
+curl -i https://day30-llm-demo.duckdns.org/api/health
 # HTTP/1.1 401 UNAUTHORIZED
 # {"code":401,"error":"unauthorized"}
 ```
@@ -684,17 +695,18 @@ curl -i http://139.59.141.72:8000/api/health
 Health succeeds with the Bearer token:
 
 ```bash
-curl -i http://139.59.141.72:8000/api/health \
-  -H "Authorization: Bearer demo-secret"
+curl -i https://day30-llm-demo.duckdns.org/api/health \
+  -H "Authorization: Bearer day30-vps-demo-2026"
 # HTTP/1.1 200 OK
+# Server: Caddy
 # {"ok":true,"model":"qwen2.5:3b", ...}
 ```
 
 Chat works through the public HTTP API:
 
 ```bash
-curl -s http://139.59.141.72:8000/api/chat \
-  -H "Authorization: Bearer demo-secret" \
+curl -s https://day30-llm-demo.duckdns.org/api/chat \
+  -H "Authorization: Bearer day30-vps-demo-2026" \
   -H "Content-Type: application/json" \
   -d '{"mode":"general","prompt":"Напиши минимальный Flask route /health, который возвращает {\"ok\": true}."}'
 # returns HTTP 200 JSON with text, latency_seconds, tokens_out, tokens_per_sec
@@ -703,8 +715,8 @@ curl -s http://139.59.141.72:8000/api/chat \
 Max prompt guard rejects oversized prompts:
 
 ```bash
-python - <<'PY' | curl -i http://139.59.141.72:8000/api/chat \
-  -H "Authorization: Bearer demo-secret" \
+python - <<'PY' | curl -i https://day30-llm-demo.duckdns.org/api/chat \
+  -H "Authorization: Bearer day30-vps-demo-2026" \
   -H "Content-Type: application/json" \
   --data-binary @-
 import json
@@ -719,8 +731,8 @@ Rate limit returns `429` after the configured window is exhausted:
 ```bash
 for i in $(seq 1 12); do
   curl -s -o /dev/null -w "%{http_code}\n" \
-    http://139.59.141.72:8000/api/health \
-    -H "Authorization: Bearer demo-secret"
+    https://day30-llm-demo.duckdns.org/api/health \
+    -H "Authorization: Bearer day30-vps-demo-2026"
 done
 # 200 ... then 429
 ```

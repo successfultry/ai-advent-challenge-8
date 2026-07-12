@@ -1,6 +1,17 @@
 # Day 30 VPS Deploy (native, CPU-only)
 
-This deploy keeps Ollama private on localhost and exposes only the Flask service.
+This deploy keeps both Ollama and Flask private on localhost, then exposes the service
+through Caddy HTTPS.
+
+Final demo shape:
+
+```text
+https://day30-llm-demo.duckdns.org
+  -> Caddy
+  -> Flask private-llm systemd service on 127.0.0.1:8000
+  -> Ollama on 127.0.0.1:11434
+  -> qwen2.5:3b
+```
 
 ## 1) Pick a VPS size
 
@@ -70,6 +81,7 @@ and adjust:
 
 - `WorkingDirectory`
 - `Environment=PRIVATE_LLM_API_KEY=...`
+- `Environment="LLM_PROVIDER=..."` (quotes are required because the provider name has spaces)
 - user/group if needed
 
 Then:
@@ -95,12 +107,20 @@ Keep app on `0.0.0.0:8000` and open port 8000 in firewall/security group.
 
 ### Option B (recommended): Caddy reverse proxy + HTTPS
 
+Point a domain/subdomain to the VPS public IP first. The final demo used:
+
+```text
+day30-llm-demo.duckdns.org -> 139.59.141.72
+```
+
 Use `week_06/deploy/Caddyfile`, then:
 
 ```bash
 sudo apt install -y caddy
 sudo cp week_06/deploy/Caddyfile /etc/caddy/Caddyfile
+sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl restart caddy
+sudo systemctl status caddy --no-pager
 ```
 
 Set app back to `HOST=127.0.0.1`, keep only Caddy public.
@@ -110,14 +130,14 @@ Set app back to `HOST=127.0.0.1`, keep only Caddy public.
 Health:
 
 ```bash
-curl https://your-domain.example.com/api/health \
+curl https://day30-llm-demo.duckdns.org/api/health \
   -H "Authorization: Bearer change-me"
 ```
 
 Chat:
 
 ```bash
-curl https://your-domain.example.com/api/chat \
+curl https://day30-llm-demo.duckdns.org/api/chat \
   -H "Authorization: Bearer change-me" \
   -H "Content-Type: application/json" \
   -d '{"mode":"general","prompt":"Коротко объясни, что такое локальная LLM"}'
@@ -128,7 +148,7 @@ Rate limit (expect some `429`):
 ```bash
 for i in $(seq 1 12); do
   curl -s -o /dev/null -w "%{http_code}\n" \
-    https://your-domain.example.com/api/health \
+    https://day30-llm-demo.duckdns.org/api/health \
     -H "Authorization: Bearer change-me"
 done
 ```
@@ -136,14 +156,12 @@ done
 Max prompt check (expect `413`):
 
 ```bash
-python - <<'PY'
-import requests
-url = "https://your-domain.example.com/api/chat"
-headers = {"Authorization": "Bearer change-me"}
-payload = {"mode": "general", "prompt": "x" * 5000}
-r = requests.post(url, headers=headers, json=payload, timeout=60)
-print(r.status_code)
-print(r.text)
+python - <<'PY' | curl -i https://day30-llm-demo.duckdns.org/api/chat \
+  -H "Authorization: Bearer change-me" \
+  -H "Content-Type: application/json" \
+  --data-binary @-
+import json
+print(json.dumps({"mode": "general", "prompt": "x" * 5000}))
 PY
 ```
 
