@@ -22,14 +22,19 @@ PROVIDERS: dict[str, Provider] = {
         "llama-3.3-70b-versatile",
         "GROQ_API_KEY",
     ),
-    "Qwen2.5 Coder 7B (Ollama, local)": Provider(
+    "Qwen2.5 3B (Ollama, local)": Provider(
         "http://localhost:11434/v1",
-        "qwen2.5-coder:7b",
+        "qwen2.5:3b",
         None,
     ),
     "Qwen2.5 Coder 3B (Ollama, local)": Provider(
         "http://localhost:11434/v1",
         "qwen2.5-coder:3b",
+        None,
+    ),
+    "Qwen2.5 Coder 7B (Ollama, local)": Provider(
+        "http://localhost:11434/v1",
+        "qwen2.5-coder:7b",
         None,
     ),
 }

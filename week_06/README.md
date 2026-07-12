@@ -25,12 +25,13 @@ No `__init__.py` in `week_06/` (PEP 420 namespace package), same run style as ea
 uv sync
 ```
 
-Install Ollama on Windows, start it, and pull a local coder model:
+Install Ollama on Windows, start it, and pull the local models used this week:
 
 ```bash
-ollama pull qwen2.5-coder:7b
-# fallback for weaker machines:
+ollama pull qwen2.5:3b
 ollama pull qwen2.5-coder:3b
+# optional on stronger local machines; not used for the CPU-only VPS demo:
+ollama pull qwen2.5-coder:7b
 ```
 
 ## Local Provider Setup
@@ -45,8 +46,9 @@ http://localhost:11434/v1
 `shared/config.py` as keyless providers:
 
 ```text
-Qwen2.5 Coder 7B (Ollama, local) -> qwen2.5-coder:7b
+Qwen2.5 3B (Ollama, local)       -> qwen2.5:3b
 Qwen2.5 Coder 3B (Ollama, local) -> qwen2.5-coder:3b
+Qwen2.5 Coder 7B (Ollama, local) -> qwen2.5-coder:7b
 ```
 
 `shared/client.py` handles them through the same OpenAI SDK path used by cloud providers. Cloud providers still require API keys; local providers use `api_key_env=None` in config.
@@ -536,20 +538,27 @@ Expose the local LLM as a private network service with:
 browser/curl
    -> Flask private API (week_06.web_app)
       -> local Ollama endpoint (127.0.0.1:11434)
-         -> qwen2.5-coder:3b
+         -> qwen2.5:3b
 ```
 
-Only Flask/Caddy is exposed publicly. Ollama itself stays private.
+Only Flask/Caddy is exposed publicly. Ollama itself stays private. The VPS demo defaults
+to `qwen2.5:3b` for general chat because it follows short Russian/non-code prompts better
+than the code-focused `qwen2.5-coder:3b`. The coder 3B model stays available for code tasks.
+`qwen2.5-coder:7b` is optional and was not pulled for the CPU-only VPS demo because it is
+too slow for a reliable live walkthrough.
 
 ### Env vars
 
 ```text
 PRIVATE_LLM_API_KEY   required
-LLM_PROVIDER          default: Qwen2.5 Coder 3B (Ollama, local)
+LLM_PROVIDER          default: Qwen2.5 3B (Ollama, local)
 HOST                  default: 0.0.0.0
 PORT                  default: 8000
 MAX_PROMPT_CHARS      default: 4000
 RATE_LIMIT_PER_MIN    default: 10
+LLM_TEMPERATURE       default: 0.2
+LLM_TOP_P             default: 0.9
+LLM_MAX_TOKENS        default: 220
 ```
 
 ### API endpoints
@@ -571,17 +580,21 @@ Error contract:
 Ensure model is pulled:
 
 ```bash
+ollama pull qwen2.5:3b
 ollama pull qwen2.5-coder:3b
 ```
 
 ```bash
 # bash
 export PRIVATE_LLM_API_KEY=dev-secret
-export LLM_PROVIDER="Qwen2.5 Coder 3B (Ollama, local)"
+export LLM_PROVIDER="Qwen2.5 3B (Ollama, local)"
 export HOST=127.0.0.1
 export PORT=8000
 export MAX_PROMPT_CHARS=4000
 export RATE_LIMIT_PER_MIN=10
+export LLM_TEMPERATURE=0.2
+export LLM_TOP_P=0.9
+export LLM_MAX_TOKENS=220
 
 uv run python -m week_06.web_app
 ```
@@ -666,11 +679,13 @@ PY
 ## Troubleshooting (bash + Ollama)
 
 - `model not found`:
-  - run `ollama pull qwen2.5-coder:7b`.
+  - run `ollama pull qwen2.5:3b` for the default VPS demo model;
+  - run `ollama pull qwen2.5-coder:3b` if you want the code-focused provider too.
 - `Connection refused` / API connection error:
   - start Ollama app or run `ollama serve`.
 - Too slow / high memory:
-  - use `--provider "Qwen2.5 Coder 3B (Ollama, local)"`.
+  - use `--provider "Qwen2.5 3B (Ollama, local)"`;
+  - keep `qwen2.5-coder:7b` for stronger local machines, not the CPU-only VPS demo.
 - Python import error:
   - run from repo root with `uv run python -m week_06.main`.
 - Day 28 DB not found:

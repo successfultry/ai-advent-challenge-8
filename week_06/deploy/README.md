@@ -4,9 +4,10 @@ This deploy keeps Ollama private on localhost and exposes only the Flask service
 
 ## 1) Pick a VPS size
 
-- Recommended for stable demo with `qwen2.5-coder:3b`: **4 vCPU / 8 GB RAM**
+- Recommended for stable demo with `qwen2.5:3b`: **4 vCPU / 8 GB RAM**
 - Minimal (works but slower/riskier): **2 vCPU / 4 GB RAM**
-- `7b` on cheap CPU VPS is usually too slow for a live demo.
+- `qwen2.5-coder:3b` is kept as the code-focused provider.
+- `7b` on cheap CPU VPS is usually too slow for a live demo and is optional only.
 
 ## 2) Install base packages
 
@@ -19,6 +20,7 @@ sudo apt install -y curl git ca-certificates
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen2.5:3b
 ollama pull qwen2.5-coder:3b
 ```
 
@@ -42,11 +44,14 @@ uv sync
 
 ```bash
 export PRIVATE_LLM_API_KEY=change-me
-export LLM_PROVIDER="Qwen2.5 Coder 3B (Ollama, local)"
+export LLM_PROVIDER="Qwen2.5 3B (Ollama, local)"
 export HOST=127.0.0.1
 export PORT=8000
 export MAX_PROMPT_CHARS=4000
 export RATE_LIMIT_PER_MIN=10
+export LLM_TEMPERATURE=0.2
+export LLM_TOP_P=0.9
+export LLM_MAX_TOKENS=220
 
 uv run python -m week_06.web_app
 ```

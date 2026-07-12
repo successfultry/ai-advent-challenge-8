@@ -14,7 +14,7 @@ from week_06.local_client import OllamaClientError
 from week_06.workbench import DEFAULT_MODE, MODE_INSTRUCTIONS, WorkbenchService, local_providers
 
 LOCAL_ENDPOINT = "http://localhost:11434/v1"
-DEFAULT_LOCAL_PROVIDER = "Qwen2.5 Coder 3B (Ollama, local)"
+DEFAULT_LOCAL_PROVIDER = "Qwen2.5 3B (Ollama, local)"
 app = Flask(__name__, template_folder="templates")
 
 _LOCAL_PROVIDERS = local_providers()

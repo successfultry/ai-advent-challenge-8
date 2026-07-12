@@ -7,7 +7,7 @@ Wants=network-online.target ollama.service
 Type=simple
 WorkingDirectory=/opt/ai-advent-challenge-8
 Environment=PRIVATE_LLM_API_KEY=change-me
-Environment=LLM_PROVIDER=Qwen2.5 Coder 3B (Ollama, local)
+Environment=LLM_PROVIDER=Qwen2.5 3B (Ollama, local)
 Environment=HOST=127.0.0.1
 Environment=PORT=8000
 Environment=MAX_PROMPT_CHARS=4000
