@@ -651,17 +651,78 @@ done
 Max prompt check:
 
 ```bash
-python - <<'PY'
-import requests
-r = requests.post(
-    "http://127.0.0.1:8000/api/chat",
-    headers={"Authorization": "Bearer dev-secret"},
-    json={"mode": "general", "prompt": "x" * 5000},
-    timeout=60,
-)
-print(r.status_code)
-print(r.text)
+python - <<'PY' | curl -i http://127.0.0.1:8000/api/chat \
+  -H "Authorization: Bearer dev-secret" \
+  -H "Content-Type: application/json" \
+  --data-binary @-
+import json
+print(json.dumps({"mode": "general", "prompt": "x" * 5000}))
 PY
+```
+
+### Verified VPS checks
+
+These checks were run against the public DigitalOcean VPS demo endpoint:
+
+```text
+VPS URL: http://139.59.141.72:8000
+Model: qwen2.5:3b
+Provider: Qwen2.5 3B (Ollama, local)
+```
+
+`demo-secret` is a demo value supplied through `PRIVATE_LLM_API_KEY`; real secrets are
+runtime environment values and are not committed to code.
+
+Auth rejects missing Bearer token:
+
+```bash
+curl -i http://139.59.141.72:8000/api/health
+# HTTP/1.1 401 UNAUTHORIZED
+# {"code":401,"error":"unauthorized"}
+```
+
+Health succeeds with the Bearer token:
+
+```bash
+curl -i http://139.59.141.72:8000/api/health \
+  -H "Authorization: Bearer demo-secret"
+# HTTP/1.1 200 OK
+# {"ok":true,"model":"qwen2.5:3b", ...}
+```
+
+Chat works through the public HTTP API:
+
+```bash
+curl -s http://139.59.141.72:8000/api/chat \
+  -H "Authorization: Bearer demo-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"general","prompt":"Напиши минимальный Flask route /health, который возвращает {\"ok\": true}."}'
+# returns HTTP 200 JSON with text, latency_seconds, tokens_out, tokens_per_sec
+```
+
+Max prompt guard rejects oversized prompts:
+
+```bash
+python - <<'PY' | curl -i http://139.59.141.72:8000/api/chat \
+  -H "Authorization: Bearer demo-secret" \
+  -H "Content-Type: application/json" \
+  --data-binary @-
+import json
+print(json.dumps({"mode": "general", "prompt": "x" * 5000}))
+PY
+# HTTP/1.1 413 REQUEST ENTITY TOO LARGE
+# {"code":413,"error":"prompt too large (max 4000 chars)"}
+```
+
+Rate limit returns `429` after the configured window is exhausted:
+
+```bash
+for i in $(seq 1 12); do
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    http://139.59.141.72:8000/api/health \
+    -H "Authorization: Bearer demo-secret"
+done
+# 200 ... then 429
 ```
 
 ### Demo flow (Day 30)
